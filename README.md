@@ -39,15 +39,28 @@ List them locally with `qnd.ps1 profiles` or `./qnd.sh profiles`.
 
 ## Windows — RX 6950 XT
 
+### Validation status
+
+Validated on real RX 6950 XT 16 GB hardware on 2026-09-18 with the pinned Vulkan runtime and Ternary-Bonsai 27B Q2 group-64.
+
+Observed llama.cpp timings after warm-up:
+
+- prompt prefill: about **239 tok/s** on a 276-token request;
+- generation: about **47.7 tok/s**;
+- native OpenAI tool call: **PASS**;
+- normal chat completion: **PASS**;
+- DeepSeek Harness connection through `bonsai-local / bonsai-qnd`: **PASS**.
+
+These are one-machine validation numbers, not a formal benchmark guarantee, but they confirm that the intended RX 6950 XT path is fully functional.
+
 ### Requirements
 
 - Windows 11
 - PowerShell 7
 - Git
+- Python 3.11+
 - a working AMD Vulkan driver / Vulkan runtime (`vulkaninfo` is useful for diagnosis)
 - Node.js + npm/npx for DeepSeek Harness
-
-Python/uv and the model/runtime dependencies are handled by the pinned upstream Bonsai setup where possible.
 
 ### Setup
 
@@ -57,7 +70,15 @@ Python/uv and the model/runtime dependencies are handled by the pinned upstream 
 
 On an RX 6950 XT you can normally omit `-Profile`; auto-detection is intentionally narrow and fails rather than guessing on unknown Windows GPUs.
 
-The setup wrapper forces the Ternary family and validates that the expected **group-64** model is present. It also validates the Vulkan `llama-server.exe`. If upstream autodetection installs a different backend, QND downloads the pinned Vulkan release explicitly.
+The RX 6950 XT setup is intentionally lean and does **not** run the heavyweight upstream setup path. It:
+
+1. checks out the pinned Bonsai revision;
+2. creates a small Python download environment if needed;
+3. downloads only `*Q2_g64.gguf` plus `*mmproj*.gguf` from `prism-ml/Ternary-Bonsai-27B-gguf`;
+4. downloads only the pinned Windows Vulkan llama.cpp archive;
+5. validates that the expected group-64 model and Vulkan `llama-server.exe` exist.
+
+This avoids downloading the unused PQ2_0/drafter artifacts and avoids the previous CPU-then-Vulkan binary download sequence.
 
 ### Diagnose
 
