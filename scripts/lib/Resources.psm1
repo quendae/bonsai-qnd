@@ -5,8 +5,10 @@ function Get-QndEffectiveMemoryBytes {
     param([string]$CgroupPath, [string]$MemInfoPath)
     if ($CgroupPath -and (Test-Path $CgroupPath -PathType Leaf)) {
         $value = (Get-Content -Raw $CgroupPath).Trim()
-        [UInt64]$parsed = 0
-        if ([UInt64]::TryParse($value, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
+        if ($value -match '^\d+$') {
+            $parsed = [UInt64]$value
+            if ($parsed -gt 0) { return $parsed }
+        }
     }
     if ($MemInfoPath -and (Test-Path $MemInfoPath -PathType Leaf)) {
         $line = Get-Content $MemInfoPath | Where-Object { $_ -match '^MemTotal:\s+(\d+)\s+kB' } | Select-Object -First 1
