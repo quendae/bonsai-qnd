@@ -1,0 +1,13 @@
+{
+  "bonsai": {
+    "repository": "https://github.com/PrismML-Eng/Bonsai-demo.git",
+    "commit": "c398c6eeef7533dd9398682cc1297e33670df0cd",
+    "llamaRelease": "prism-b10683-d8f26ee"
+  },
+  "deepseekHarness": {
+    "repository": "https://github.com/deepseek-ai/deepseek-harness.git",
+    "commit": "ddefc45fbc7f8e46dd73185e68295696d1297887",
+    "npmPackage": "@deepseek-ai/dsh",
+    "npmVersion": "0.1.6-alpha.2"
+  }
+}
