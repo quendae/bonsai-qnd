@@ -116,7 +116,7 @@ apt update
 apt install -y git curl python3 nodejs npm
 ```
 
-The pinned Bonsai setup may install additional build/runtime prerequisites if needed.
+The CPU profiles also use a lean setup path. They do not run the heavyweight upstream setup or auto-detect host GPU tooling. Instead QND downloads exactly one `Q1_0` GGUF for the selected size and exactly one pinned x86_64 CPU llama.cpp archive.
 
 ### Agent profile (27B)
 
@@ -135,6 +135,8 @@ The 27B 1-bit GGUF is small enough for the target RAM, but CPU generation will s
 - thinking disabled to avoid spending minutes on hidden reasoning before visible output
 
 `cpu-agent` refuses to set up below **12 GiB effective memory**. The effective value comes from cgroup v2 `memory.max` when finite, otherwise `/proc/meminfo`.
+
+The lean CPU setup resolves the exact GGUF filename through the Hugging Face model metadata API using only `curl` and Python's standard library, then downloads that single file. No global pip installation or Hugging Face Python package is required.
 
 ### Faster CPU profile (8B)
 
