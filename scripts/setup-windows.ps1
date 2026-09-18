@@ -12,16 +12,18 @@ $leanRx6950 = $p.id -in @('amd-rx6950xt','amd-rx6950xt-legacy')
 $modelRepo = $null
 $modelAllow = @()
 $needMmproj = $false
+$backendAsset = $null
 if($p.id -eq 'amd-rx6950xt'){
   $modelRepo = 'prism-ml/Ternary-Bonsai-2-27B-gguf'
-  $modelAllow = @('*-PTQ1_0.gguf')
+  $modelAllow = @('*-PQ2_0.gguf')
   $needMmproj = $false
+  $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-hip-radeon-x64.zip"
 } elseif($p.id -eq 'amd-rx6950xt-legacy'){
   $modelRepo = 'prism-ml/Ternary-Bonsai-27B-gguf'
   $modelAllow = @('*Q2_g64.gguf','*mmproj*.gguf')
   $needMmproj = $true
+  $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-vulkan-x64.zip"
 }
-$backendAsset = if($leanRx6950){ "llama-$($lock.bonsai.llamaRelease)-bin-win-vulkan-x64.zip" } else { $null }
 
 Write-Output "PROFILE=$($p.id)"
 Write-Output "BONSAI_FAMILY=$($p.family)"
@@ -120,25 +122,25 @@ snapshot_download(repo_id=repo_id, local_dir=local_dir, allow_patterns=patterns,
   }
 }
 
-function Ensure-QndVulkanBackend([string]$Asset){
-  $dest = Join-Path $bonsaiDir 'bin\vulkan'
+function Ensure-QndWindowsBackend([string]$Backend,[string]$Asset){
+  $dest = Join-Path $bonsaiDir "bin\$Backend"
   $bin = Join-Path $dest 'llama-server.exe'
   $releaseStamp = Join-Path $dest '.llama_release'
   $installed = if(Test-Path $releaseStamp){ (Get-Content -Raw $releaseStamp).Trim() } else { '' }
   if((Test-Path $bin) -and $installed -eq $lock.bonsai.llamaRelease){
-    Write-Host "[OK] Pinned Vulkan backend already present: $Asset" -ForegroundColor Green
+    Write-Host "[OK] Pinned $Backend backend already present: $Asset" -ForegroundColor Green
     return
   }
   $url="https://github.com/PrismML-Eng/llama.cpp/releases/download/$($lock.bonsai.llamaRelease)/$Asset"
   $zip=Join-Path ([IO.Path]::GetTempPath()) ("qnd-"+[guid]::NewGuid()+'.zip')
   $extract="$zip.dir"
   try{
-    Write-Host "==> Downloading pinned Vulkan backend only ..." -ForegroundColor Cyan
+    Write-Host "==> Downloading pinned $Backend backend only ..." -ForegroundColor Cyan
     Write-Host "    $Asset"
     Invoke-WebRequest -Uri $url -OutFile $zip
     Expand-Archive -Path $zip -DestinationPath $extract -Force
     $server=Get-ChildItem $extract -Recurse -Filter 'llama-server.exe' -File | Select-Object -First 1
-    if(-not $server){throw 'Downloaded Vulkan archive did not contain llama-server.exe'}
+    if(-not $server){throw "Downloaded $Backend archive did not contain llama-server.exe"}
     Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force $dest | Out-Null
     Copy-Item (Join-Path $server.Directory.FullName '*') $dest -Recurse -Force
@@ -153,7 +155,11 @@ if($leanRx6950){
   $modelDir = switch($p.family){ 'bonsai2'{Join-Path $bonsaiDir "models\bonsai2-gguf\$($p.model)"}; 'ternary'{Join-Path $bonsaiDir "models\ternary-gguf\$($p.model)"}; default{Join-Path $bonsaiDir "models\gguf\$($p.model)"} }
   $downloadPython = Ensure-QndDownloadPython
   Download-QndSelectedModel -PythonExe $downloadPython -RepoId $modelRepo -Destination $modelDir -AllowPatterns $modelAllow -NeedMmproj $needMmproj
-  Ensure-QndVulkanBackend -Asset $backendAsset
+  Ensure-QndWindowsBackend -Backend $p.backend -Asset $backendAsset
+  if($p.backend -eq 'hip'){
+    $hipDetected = [bool]$env:HIP_PATH -or [bool](Get-Command hipInfo.exe -ErrorAction SilentlyContinue) -or [bool](Get-Command hipcc.exe -ErrorAction SilentlyContinue)
+    if(-not $hipDetected){ Write-Warning 'HIP SDK tooling was not detected. The bundled HIP backend may still start with the installed AMD runtime; if it fails, install the current AMD HIP SDK for Radeon.' }
+  }
 } else {
   $names=@('BONSAI_FAMILY','BONSAI_MODEL','BONSAI_NGL','BONSAI_CTX','BONSAI_OPENWEBUI','BONSAI_CODE_INTERPRETER')
   $old=@{}; foreach($n in $names){$old[$n]=[Environment]::GetEnvironmentVariable($n,'Process')}
