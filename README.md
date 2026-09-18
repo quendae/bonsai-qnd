@@ -2,16 +2,16 @@
 
 Hardware-aware local Bonsai runtime for two concrete targets:
 
-- **Windows + Radeon RX 6950 XT 16 GB** — current Bonsai 2 27B, PQ2_0, HIP, full GPU offload, large KV4 context.
+- **Windows + Radeon RX 6950 XT 16 GB** — current Bonsai 2 27B, PTQ1_0, Vulkan, full GPU offload, KV4 context.
 - **Debian LXC + Intel i3-10100 + 16 GB RAM** — Bonsai 27B Q1_0 CPU agent profile, with an optional faster Bonsai 8B Q1_0 profile.
 
 The model is served by PrismML's pinned `llama-server`; **DeepSeek Harness** connects to it as a local OpenAI-compatible provider named `bonsai-local` and exposes its web UI on port 3080.
 
 ## Why this exists
 
-Bonsai 2 requires PrismML's llama.cpp fork. Its optimized PQ2_0 path is available on HIP/ROCm but not yet on Vulkan, so QND does not pair Bonsai 2 PQ2_0 with Vulkan.
+Bonsai 2 requires PrismML's llama.cpp fork. Its optimized PQ2_0 path is not available on Vulkan, while current AMD HIP SDK 7.2 for Windows no longer officially supports the RX 6950 XT / gfx1030. QND therefore uses the current Bonsai 2 model without depending on unsupported current HIP: **PTQ1_0 over Vulkan**.
 
-For the RX 6950 XT, the primary profile now uses the current **Bonsai 2 27B PQ2_0 over HIP**. A current-model `PTQ1_0 + Vulkan` fallback is available separately, and the previously validated Ternary-Bonsai group-64/Vulkan stack remains as a legacy baseline.
+An experimental `PQ2_0 + HIP` profile remains available for testing with an older compatible HIP runtime. The previously validated Ternary-Bonsai group-64/Vulkan stack remains as a legacy baseline.
 
 On CPU, context sizing is explicit and the Linux resource helper respects the LXC cgroup memory limit instead of assuming all host RAM is available.
 
@@ -30,8 +30,8 @@ QND does not silently follow an upstream branch.
 
 | Profile | Platform | Model | Backend | Context | Notes |
 |---|---|---|---|---:|---|
-| `amd-rx6950xt` | Windows | **Bonsai 2 27B PQ2_0** | HIP | 131072 | Primary current-model profile, KV4, text-only, `-ngl 99` |
-| `amd-rx6950xt-vulkan` | Windows | **Bonsai 2 27B PTQ1_0** | Vulkan | 65536 | Current-model fallback, KV4, experimental |
+| `amd-rx6950xt` | Windows | **Bonsai 2 27B PTQ1_0** | Vulkan | 65536 | Primary current-model profile, KV4, text-only, `-ngl 99` |
+| `amd-rx6950xt-hip` | Windows | **Bonsai 2 27B PQ2_0** | HIP | 65536 | Experimental; current HIP SDK does not officially support gfx1030 |
 | `amd-rx6950xt-legacy` | Windows | Ternary-Bonsai 27B Q2 group-64 | Vulkan | 16384 | Known-good legacy baseline |
 | `cpu-agent` | Linux | Bonsai 27B Q1_0 | CPU | 8192 | Agent/tool profile, thinking disabled for CPU latency |
 | `cpu-fast` | Linux | Bonsai 8B Q1_0 | CPU | 8192 | Faster chat/testing profile; tool use is not treated as guaranteed |
@@ -43,22 +43,29 @@ List them locally with `qnd.ps1 profiles` or `./qnd.sh profiles`.
 
 ### Current Bonsai 2 profile
 
-The default RX 6950 XT profile prioritizes model quality over the maximum generation speed seen from the older Ternary model:
+The default RX 6950 XT profile prioritizes the current model and answer quality over the high decode speed measured from the previous Ternary generation:
 
-- Bonsai 2 27B;
-- `PQ2_0` weights;
-- PrismML Windows HIP/Radeon backend;
+- **Bonsai 2 27B** based on Qwen3.8-27B;
+- `PTQ1_0` weights (~5.9 GB);
+- PrismML Windows Vulkan llama.cpp backend;
 - full GPU offload (`-ngl 99`);
-- 131072-token configured context;
+- 65536-token configured context;
 - Q4_0 K/V cache;
 - one server slot;
-- text-only by default, so the multimodal projector does not consume VRAM.
+- text-only by default, so the multimodal projector does not consume VRAM;
+- sampling is left to the GGUF/model metadata instead of being overridden by QND.
 
-Bonsai 2 itself supports up to 262144 tokens. QND starts at 131072 as a practical 16 GB VRAM target rather than claiming the hardware can hold the model's full maximum context. This profile still needs real RX 6950 XT validation.
+Bonsai 2 itself supports up to 262144 tokens. QND starts at 65536 on the RX 6950 XT as a conservative first validation point. Once real VRAM usage and stability are known, the profile can be raised further.
+
+This Bonsai 2/Vulkan profile still needs real RX 6950 XT validation.
+
+### Why not HIP by default?
+
+PrismML ships a Windows HIP/Radeon build and PQ2_0 has optimized HIP kernels. However, AMD's current Windows HIP SDK 7.2 support table marks the RX 6950 XT / gfx1030 as unsupported. Older HIP SDK releases did officially support this GPU, so QND keeps `amd-rx6950xt-hip` as an explicit experiment rather than making an unsupported runtime combination the default.
 
 ### Known-good legacy baseline
 
-The previous `amd-rx6950xt-legacy` profile was validated on real RX 6950 XT 16 GB hardware on 2026-09-18 with Ternary-Bonsai 27B Q2 group-64 and Vulkan.
+The `amd-rx6950xt-legacy` profile was validated on real RX 6950 XT 16 GB hardware on 2026-09-18 with Ternary-Bonsai 27B Q2 group-64 and Vulkan.
 
 Observed timings after warm-up:
 
@@ -68,7 +75,7 @@ Observed timings after warm-up:
 - normal chat completion: **PASS**;
 - DeepSeek Harness connection through `bonsai-local / bonsai-qnd`: **PASS**.
 
-Those numbers apply to the legacy Ternary/Vulkan profile only; they are not performance claims for Bonsai 2/HIP.
+Those numbers apply to the legacy Ternary/Vulkan profile only; Bonsai 2 PTQ1_0 may be slower.
 
 ### Requirements
 
@@ -76,11 +83,10 @@ Those numbers apply to the legacy Ternary/Vulkan profile only; they are not perf
 - PowerShell 7
 - Git
 - Python 3.11+
-- current AMD Radeon driver/runtime
-- for the primary profile, a current AMD HIP SDK/runtime supported by the RX 6950 XT is recommended
+- working AMD Vulkan driver/runtime
 - Node.js + npm/npx for DeepSeek Harness
 
-### Setup — current Bonsai 2/HIP
+### Setup — current Bonsai 2/Vulkan
 
 ```powershell
 .\qnd.ps1 setup -Profile amd-rx6950xt
@@ -91,21 +97,21 @@ On an RX 6950 XT you can normally omit `-Profile`; auto-detection is intentional
 The setup is intentionally lean. For the primary profile it downloads only:
 
 1. the pinned Bonsai-demo checkout;
-2. `*-PQ2_0.gguf` from `prism-ml/Ternary-Bonsai-2-27B-gguf`;
-3. the pinned PrismML Windows HIP/Radeon llama.cpp archive.
+2. `*-PTQ1_0.gguf` from `prism-ml/Ternary-Bonsai-2-27B-gguf`;
+3. the pinned PrismML Windows Vulkan llama.cpp archive.
 
-It does not download the old Ternary model, the PTQ1 fallback, vision projector, or unrelated backends.
+It does not download the old Ternary model, PQ2_0, vision projector, or unrelated backends.
 
-### Current-model Vulkan fallback
+### Experimental HIP/PQ2 profile
 
-If HIP cannot start on a particular Windows installation, test the current Bonsai 2 model before falling back to the old generation:
+If you intentionally have an older compatible HIP runtime installed and want to compare the faster packing:
 
 ```powershell
-.\qnd.ps1 setup -Profile amd-rx6950xt-vulkan
-.\qnd.ps1 start -Profile amd-rx6950xt-vulkan
+.\qnd.ps1 setup -Profile amd-rx6950xt-hip
+.\qnd.ps1 start -Profile amd-rx6950xt-hip
 ```
 
-This uses Bonsai 2 `PTQ1_0` over Vulkan with a 65536-token KV4 context. It is explicitly experimental; Vulkan does not have the optimized PQ2_0 kernels.
+This is not the default because current AMD HIP SDK 7.2 does not officially support the RX 6950 XT on Windows.
 
 ### Legacy fallback
 
@@ -235,7 +241,7 @@ For direct server-only use on Linux:
 - No Bonsai 2 PQ2_0 over Vulkan.
 - No speculative decoding by default.
 - No MCP servers enabled by default; their schemas increase prompt prefill cost and are especially painful on CPU.
-- The primary RX 6950 XT profile is text-only for now; vision can be enabled after the Bonsai 2 HIP path is validated without sacrificing the initial VRAM budget.
+- The primary RX 6950 XT profile is text-only for now; vision can be enabled after Bonsai 2 is validated without sacrificing the initial VRAM budget.
 - Services bind to `127.0.0.1`, not LAN interfaces.
 
 ## Tests
