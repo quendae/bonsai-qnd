@@ -22,14 +22,14 @@ fi
 QND_TEST_PLATFORM=windows QND_TEST_GPU_NAMES='AMD Radeon RX 6950 XT' qnd_select_profile
 assert_eq "$QND_PROFILE_ID" "amd-rx6950xt"
 assert_eq "$QND_FAMILY" "bonsai2"
-assert_eq "$QND_BACKEND" "hip"
-assert_eq "$QND_CONTEXT" "131072"
-case "$QND_GGUF_PATTERN" in *PQ2_0*) : ;; *) fail "AMD current profile must select Bonsai 2 PQ2_0" ;; esac
-
-qnd_load_profile amd-rx6950xt-vulkan
-assert_eq "$QND_FAMILY" "bonsai2"
 assert_eq "$QND_BACKEND" "vulkan"
-case "$QND_GGUF_PATTERN" in *PTQ1_0*) : ;; *) fail "AMD Vulkan fallback must select Bonsai 2 PTQ1_0" ;; esac
+assert_eq "$QND_CONTEXT" "65536"
+case "$QND_GGUF_PATTERN" in *PTQ1_0*) : ;; *) fail "AMD current profile must select Bonsai 2 PTQ1_0" ;; esac
+
+qnd_load_profile amd-rx6950xt-hip
+assert_eq "$QND_FAMILY" "bonsai2"
+assert_eq "$QND_BACKEND" "hip"
+case "$QND_GGUF_PATTERN" in *PQ2_0*) : ;; *) fail "AMD experimental HIP profile must select Bonsai 2 PQ2_0" ;; esac
 
 qnd_load_profile amd-rx6950xt-legacy
 assert_eq "$QND_FAMILY" "ternary"
