@@ -6,8 +6,12 @@ New-Item -ItemType Directory $tmp | Out-Null
 try {
   $cg=Join-Path $tmp 'memory.max'; $mi=Join-Path $tmp 'meminfo'
   Set-Content -NoNewline $cg '17179869184'; Set-Content $mi 'MemTotal:       32768000 kB'
-  if ((Get-QndEffectiveMemoryBytes -CgroupPath $cg -MemInfoPath $mi) -ne 17179869184) { throw 'finite cgroup limit not honored' }
+  $actual = Get-QndEffectiveMemoryBytes -CgroupPath $cg -MemInfoPath $mi
+  Write-Host "memory finite: value=[$actual] type=$($actual.GetType().FullName) count=$(@($actual).Count) raw=[$((Get-Content -Raw $cg))]"
+  if ($actual -ne [UInt64]17179869184) { throw "finite cgroup limit not honored: actual=[$actual] type=$($actual.GetType().FullName)" }
   Set-Content -NoNewline $cg 'max'
-  if ((Get-QndEffectiveMemoryBytes -CgroupPath $cg -MemInfoPath $mi) -ne 33554432000) { throw 'meminfo fallback failed' }
+  $actual = Get-QndEffectiveMemoryBytes -CgroupPath $cg -MemInfoPath $mi
+  Write-Host "memory max fallback: value=[$actual] type=$($actual.GetType().FullName) count=$(@($actual).Count)"
+  if ($actual -ne [UInt64]33554432000) { throw "meminfo fallback failed: actual=[$actual]" }
 } finally { Remove-Item -Recurse -Force $tmp }
 Write-Host 'Resources.Tests.ps1: PASS'
