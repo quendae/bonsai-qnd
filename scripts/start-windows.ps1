@@ -12,7 +12,7 @@ $model=Get-ChildItem $modelDir -Filter $p.ggufPattern -File -ErrorAction Silentl
 $bin=Join-Path $bonsaiDir "bin\$($p.backend)\llama-server.exe"
 $cpu=Get-QndCpuCounts
 $modelArg=if($model){$model.FullName}else{"<model:$($p.ggufPattern)>"}
-$args=@('--alias',$p.harnessModelId,'-m',$modelArg,'--host','127.0.0.1','--port','8080','-ngl',[string]$p.gpuLayers,'-fa','on','-c',[string]$p.context,'-np',[string]$p.parallel,'-t',[string]$cpu.Physical,'-tb',[string]$cpu.Logical,'--temp','0.7','--top-p','0.95','--top-k','20','--min-p','0','--jinja')
+$args=@('--alias',$p.harnessModelId,'-m',$modelArg,'--host','127.0.0.1','--port','8080','-ngl',[string]$p.gpuLayers,'-fa','on','-c',[string]$p.context,'-np',[string]$p.parallel,'-t',[string]$cpu.Physical,'-tb',[string]$cpu.Logical,'--jinja')
 if($p.PSObject.Properties.Name -contains 'kv4' -and $p.kv4){$args+=@('--cache-type-k','q4_0','--cache-type-v','q4_0')}
 $visionEnabled = -not ($p.PSObject.Properties.Name -contains 'vision') -or [bool]$p.vision
 if($visionEnabled -and $p.model -eq '27B'){$mm=Get-ChildItem $modelDir -Filter '*mmproj*.gguf' -File -ErrorAction SilentlyContinue | Select-Object -First 1;if($mm){$args+=@('--mmproj',$mm.FullName)}}
