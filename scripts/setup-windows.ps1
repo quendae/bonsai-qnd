@@ -89,7 +89,7 @@ function New-QndDownloadVenv([string]$VenvDir){
   $python = Get-QndPython
   if(Test-Path $VenvDir){ Remove-Item -LiteralPath $VenvDir -Recurse -Force }
   Write-Host "==> Creating lightweight download environment ..." -ForegroundColor Cyan
-  & $python -m venv $VenvDir
+  & $python -m venv $VenvDir | Out-Host
   if($LASTEXITCODE -ne 0){ throw 'Failed to create Python venv.' }
 }
 
@@ -103,7 +103,7 @@ function Ensure-QndDownloadPython {
   & $venvPy -m pip --version 2>$null | Out-Null
   if($LASTEXITCODE -ne 0){
     Write-Host '==> Download environment has no pip; repairing with ensurepip ...' -ForegroundColor Yellow
-    & $venvPy -m ensurepip --upgrade
+    & $venvPy -m ensurepip --upgrade | Out-Host
     if($LASTEXITCODE -ne 0){
       Write-Warning 'ensurepip failed in the existing download environment; recreating it from the system Python.'
       New-QndDownloadVenv $venvDir
@@ -113,7 +113,7 @@ function Ensure-QndDownloadPython {
   }
 
   Write-Host '==> Ensuring huggingface-hub ...' -ForegroundColor Cyan
-  & $venvPy -m pip install --disable-pip-version-check -q 'huggingface-hub>=1.0'
+  & $venvPy -m pip install --disable-pip-version-check -q 'huggingface-hub>=1.0' | Out-Host
   if($LASTEXITCODE -ne 0){ throw 'Failed to install huggingface-hub.' }
   return $venvPy
 }
