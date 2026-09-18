@@ -28,5 +28,12 @@ foreach($needle in @(
   'LEAN_MODEL_REPO=prism-ml/Ternary-Bonsai-27B-gguf',
   'LEAN_MODEL_ALLOW=*Q2_g64.gguf;*mmproj*.gguf'
 )) { if(-not $out.Contains($needle)){ throw "legacy setup missing $needle" } }
+
+# Regression: an existing .venv may contain python.exe but no pip (observed on Windows).
+# Setup must detect that condition and repair pip before installing huggingface-hub.
+$setupSource = Get-Content -Raw (Join-Path $Root 'scripts\setup-windows.ps1')
+if(-not $setupSource.Contains('-m pip --version')) { throw 'setup must verify pip exists inside the download venv' }
+if(-not $setupSource.Contains('-m ensurepip --upgrade')) { throw 'setup must repair a pip-less download venv with ensurepip' }
+
 Remove-Item Env:QND_DRY_RUN -ErrorAction SilentlyContinue
 Write-Host 'Setup.Tests.ps1: PASS'
