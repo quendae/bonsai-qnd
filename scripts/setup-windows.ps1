@@ -8,7 +8,7 @@ $p = if($Profile){Get-QndProfile $Profile}else{Select-QndProfile -Platform windo
 if($p.platform -ne 'windows'){ throw "Profile '$($p.id)' is not a Windows profile." }
 $lock = Get-Content -Raw (Join-Path $Root 'upstream.lock.json') | ConvertFrom-Json
 $bonsaiDir = Join-Path $Root '.runtime\bonsai'
-$leanRx6950 = $p.id -in @('amd-rx6950xt','amd-rx6950xt-vulkan','amd-rx6950xt-legacy')
+$leanRx6950 = $p.id -in @('amd-rx6950xt','amd-rx6950xt-hip','amd-rx6950xt-legacy')
 $modelRepo = $null
 $modelAllow = @()
 $needMmproj = $false
@@ -16,13 +16,13 @@ $backendAsset = $null
 switch($p.id){
   'amd-rx6950xt' {
     $modelRepo = 'prism-ml/Ternary-Bonsai-2-27B-gguf'
-    $modelAllow = @('*-PQ2_0.gguf')
-    $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-hip-radeon-x64.zip"
-  }
-  'amd-rx6950xt-vulkan' {
-    $modelRepo = 'prism-ml/Ternary-Bonsai-2-27B-gguf'
     $modelAllow = @('*-PTQ1_0.gguf')
     $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-vulkan-x64.zip"
+  }
+  'amd-rx6950xt-hip' {
+    $modelRepo = 'prism-ml/Ternary-Bonsai-2-27B-gguf'
+    $modelAllow = @('*-PQ2_0.gguf')
+    $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-hip-radeon-x64.zip"
   }
   'amd-rx6950xt-legacy' {
     $modelRepo = 'prism-ml/Ternary-Bonsai-27B-gguf'
@@ -163,9 +163,8 @@ if($leanRx6950){
   $downloadPython = Ensure-QndDownloadPython
   Download-QndSelectedModel -PythonExe $downloadPython -RepoId $modelRepo -Destination $modelDir -AllowPatterns $modelAllow -NeedMmproj $needMmproj
   Ensure-QndWindowsBackend -Backend $p.backend -Asset $backendAsset
-  if($p.backend -eq 'hip'){
-    $hipDetected = [bool]$env:HIP_PATH -or [bool](Get-Command hipInfo.exe -ErrorAction SilentlyContinue) -or [bool](Get-Command hipcc.exe -ErrorAction SilentlyContinue)
-    if(-not $hipDetected){ Write-Warning 'HIP SDK tooling was not detected. The bundled HIP backend may still start with the installed AMD runtime; if it fails, install the current AMD HIP SDK for Radeon.' }
+  if($p.id -eq 'amd-rx6950xt-hip'){
+    Write-Warning 'Experimental only: current AMD HIP SDK 7.2 does not officially support RX 6950 XT/gfx1030 on Windows. Use this profile only to test an older compatible HIP runtime.'
   }
 } else {
   $names=@('BONSAI_FAMILY','BONSAI_MODEL','BONSAI_NGL','BONSAI_CTX','BONSAI_OPENWEBUI','BONSAI_CODE_INTERPRETER')
