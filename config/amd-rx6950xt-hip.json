@@ -1,0 +1,16 @@
+{
+  "id": "amd-rx6950xt-hip",
+  "platform": "windows",
+  "family": "bonsai2",
+  "model": "27B",
+  "backend": "hip",
+  "ggufPattern": "*-PQ2_0.gguf",
+  "context": 65536,
+  "gpuLayers": 99,
+  "parallel": 1,
+  "harnessModelId": "bonsai-qnd",
+  "experimental": true,
+  "reasoning": "model-default",
+  "kv4": true,
+  "vision": false
+}
