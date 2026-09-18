@@ -8,9 +8,19 @@ $p = if($Profile){Get-QndProfile $Profile}else{Select-QndProfile -Platform windo
 if($p.platform -ne 'windows'){ throw "Profile '$($p.id)' is not a Windows profile." }
 $lock = Get-Content -Raw (Join-Path $Root 'upstream.lock.json') | ConvertFrom-Json
 $bonsaiDir = Join-Path $Root '.runtime\bonsai'
-$leanRx6950 = $p.id -eq 'amd-rx6950xt'
-$modelRepo = if($leanRx6950){ 'prism-ml/Ternary-Bonsai-27B-gguf' } else { $null }
-$modelAllow = if($leanRx6950){ @('*Q2_g64.gguf','*mmproj*.gguf') } else { @() }
+$leanRx6950 = $p.id -in @('amd-rx6950xt','amd-rx6950xt-legacy')
+$modelRepo = $null
+$modelAllow = @()
+$needMmproj = $false
+if($p.id -eq 'amd-rx6950xt'){
+  $modelRepo = 'prism-ml/Ternary-Bonsai-2-27B-gguf'
+  $modelAllow = @('*-PTQ1_0.gguf')
+  $needMmproj = $false
+} elseif($p.id -eq 'amd-rx6950xt-legacy'){
+  $modelRepo = 'prism-ml/Ternary-Bonsai-27B-gguf'
+  $modelAllow = @('*Q2_g64.gguf','*mmproj*.gguf')
+  $needMmproj = $true
+}
 $backendAsset = if($leanRx6950){ "llama-$($lock.bonsai.llamaRelease)-bin-win-vulkan-x64.zip" } else { $null }
 
 Write-Output "PROFILE=$($p.id)"
@@ -27,7 +37,7 @@ if($leanRx6950){
 }
 if($SkipDownload -or $env:QND_DRY_RUN -eq '1'){
   Write-Output "DRY_RUN checkout $($lock.bonsai.repository)@$($lock.bonsai.commit)"
-  if(-not $leanRx6950){ Write-Output 'DRY_RUN upstream setup with BONSAI_FORCE_G64=1 BONSAI_OPENWEBUI=0 BONSAI_CODE_INTERPRETER=0' }
+  if(-not $leanRx6950){ Write-Output 'DRY_RUN upstream setup with BONSAI_OPENWEBUI=0 BONSAI_CODE_INTERPRETER=0' }
   exit 0
 }
 
@@ -81,11 +91,12 @@ function Ensure-QndDownloadPython {
   return $venvPy
 }
 
-function Download-QndSelectedModel([string]$PythonExe, [string]$RepoId, [string]$Destination, [string[]]$AllowPatterns){
+function Download-QndSelectedModel([string]$PythonExe, [string]$RepoId, [string]$Destination, [string[]]$AllowPatterns, [bool]$NeedMmproj){
   $quant = Get-ChildItem $Destination -Filter $p.ggufPattern -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -notmatch 'mmproj|dspark|kv-bias'} | Select-Object -First 1
-  $mmproj = Get-ChildItem $Destination -Filter '*mmproj*.gguf' -File -ErrorAction SilentlyContinue | Select-Object -First 1
-  if($quant -and $mmproj){
-    Write-Host "[OK] Selected model files already present: $($quant.Name), $($mmproj.Name)" -ForegroundColor Green
+  $mmproj = if($NeedMmproj){ Get-ChildItem $Destination -Filter '*mmproj*.gguf' -File -ErrorAction SilentlyContinue | Select-Object -First 1 } else { $null }
+  if($quant -and (-not $NeedMmproj -or $mmproj)){
+    $extra = if($mmproj){", $($mmproj.Name)"}else{''}
+    Write-Host "[OK] Selected model files already present: $($quant.Name)$extra" -ForegroundColor Green
     return
   }
   New-Item -ItemType Directory -Force $Destination | Out-Null
@@ -139,16 +150,15 @@ function Ensure-QndVulkanBackend([string]$Asset){
 }
 
 if($leanRx6950){
-  $modelDir = Join-Path $bonsaiDir 'models\ternary-gguf\27B'
+  $modelDir = switch($p.family){ 'bonsai2'{Join-Path $bonsaiDir "models\bonsai2-gguf\$($p.model)"}; 'ternary'{Join-Path $bonsaiDir "models\ternary-gguf\$($p.model)"}; default{Join-Path $bonsaiDir "models\gguf\$($p.model)"} }
   $downloadPython = Ensure-QndDownloadPython
-  Download-QndSelectedModel -PythonExe $downloadPython -RepoId $modelRepo -Destination $modelDir -AllowPatterns $modelAllow
+  Download-QndSelectedModel -PythonExe $downloadPython -RepoId $modelRepo -Destination $modelDir -AllowPatterns $modelAllow -NeedMmproj $needMmproj
   Ensure-QndVulkanBackend -Asset $backendAsset
 } else {
-  $names=@('BONSAI_FAMILY','BONSAI_MODEL','BONSAI_NGL','BONSAI_CTX','BONSAI_FORCE_G64','BONSAI_OPENWEBUI','BONSAI_CODE_INTERPRETER')
+  $names=@('BONSAI_FAMILY','BONSAI_MODEL','BONSAI_NGL','BONSAI_CTX','BONSAI_OPENWEBUI','BONSAI_CODE_INTERPRETER')
   $old=@{}; foreach($n in $names){$old[$n]=[Environment]::GetEnvironmentVariable($n,'Process')}
   try{
     $env:BONSAI_FAMILY=$p.family; $env:BONSAI_MODEL=$p.model; $env:BONSAI_NGL=[string]$p.gpuLayers; $env:BONSAI_CTX=[string]$p.context
-    $env:BONSAI_FORCE_G64 = if($p.backend -eq 'vulkan'){'1'}else{'0'}
     $env:BONSAI_OPENWEBUI='0'; $env:BONSAI_CODE_INTERPRETER='0'
     & (Join-Path $bonsaiDir 'setup.ps1')
     if($LASTEXITCODE -and $LASTEXITCODE -ne 0){throw "upstream setup failed: $LASTEXITCODE"}
@@ -159,7 +169,7 @@ if($leanRx6950){
 
 $modelDir = switch($p.family){ 'bonsai2'{Join-Path $bonsaiDir "models\bonsai2-gguf\$($p.model)"}; 'ternary'{Join-Path $bonsaiDir "models\ternary-gguf\$($p.model)"}; default{Join-Path $bonsaiDir "models\gguf\$($p.model)"} }
 $model = Get-ChildItem $modelDir -Filter $p.ggufPattern -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -notmatch 'mmproj|dspark|kv-bias'} | Select-Object -First 1
-if(-not $model){throw "Expected GGUF '$($p.ggufPattern)' not found in $modelDir. For RX 6950 XT this must be group-64 Q2_0, not PQ2_0."}
+if(-not $model){throw "Expected GGUF '$($p.ggufPattern)' not found in $modelDir."}
 $bin = Join-Path $bonsaiDir "bin\$($p.backend)\llama-server.exe"
 if(-not (Test-Path $bin)){throw "Expected backend binary missing: $bin"}
 Write-Host "[OK] Setup complete: $($p.id)" -ForegroundColor Green
