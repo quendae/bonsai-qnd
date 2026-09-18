@@ -28,12 +28,20 @@ foreach($needle in @(
   'LEAN_MODEL_REPO=prism-ml/Ternary-Bonsai-27B-gguf',
   'LEAN_MODEL_ALLOW=*Q2_g64.gguf;*mmproj*.gguf'
 )) { if(-not $out.Contains($needle)){ throw "legacy setup missing $needle" } }
-
-# Regression: an existing .venv may contain python.exe but no pip (observed on Windows).
-# Setup must detect that condition and repair pip before installing huggingface-hub.
-$setupSource = Get-Content -Raw (Join-Path $Root 'scripts\setup-windows.ps1')
-if(-not $setupSource.Contains('-m pip --version')) { throw 'setup must verify pip exists inside the download venv' }
-if(-not $setupSource.Contains('-m ensurepip --upgrade')) { throw 'setup must repair a pip-less download venv with ensurepip' }
-
 Remove-Item Env:QND_DRY_RUN -ErrorAction SilentlyContinue
+
+# Ensure-QndDownloadPython is assigned to $downloadPython, so every external command
+# inside it must keep informational stdout off PowerShell's success-output pipeline.
+# Otherwise assignment becomes an Object[] (command output + python.exe path) and
+# Download-QndSelectedModel later tries to invoke that whole array as a command.
+$setupText = Get-Content -Raw (Join-Path $Root 'scripts\setup-windows.ps1')
+foreach($pattern in @(
+  '(?m)& \$venvPy -m ensurepip --upgrade\s*\|\s*Out-Host',
+  '(?m)& \$venvPy -m pip install .*\|\s*Out-Host'
+)) {
+  if($setupText -notmatch $pattern){ throw "download Python helper leaks command stdout into its return pipeline: missing $pattern" }
+}
+if($setupText -notmatch 'Download environment has no pip; repairing with ensurepip') { throw 'setup must recover pip in an existing Windows venv' }
+if($setupText -notmatch 'ensurepip failed in the existing download environment; recreating it from the system Python') { throw 'setup must recreate an unrecoverable Windows venv' }
+
 Write-Host 'Setup.Tests.ps1: PASS'
