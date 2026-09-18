@@ -12,13 +12,15 @@ $model=Get-ChildItem $modelDir -Filter $p.ggufPattern -File -ErrorAction Silentl
 $bin=Join-Path $bonsaiDir "bin\$($p.backend)\llama-server.exe"
 $cpu=Get-QndCpuCounts
 $modelArg=if($model){$model.FullName}else{"<model:$($p.ggufPattern)>"}
-$args=@('--alias',$p.harnessModelId,'-m',$modelArg,'--host','127.0.0.1','--port','8080','-ngl',[string]$p.gpuLayers,'-fa','on','-c',[string]$p.context,'-np',[string]$p.parallel,'-t',[string]$cpu.Physical,'-tb',[string]$cpu.Logical,'--jinja')
-if($p.model -eq '27B'){$mm=Get-ChildItem $modelDir -Filter '*mmproj*.gguf' -File -ErrorAction SilentlyContinue | Select-Object -First 1;if($mm){$args+=@('--mmproj',$mm.FullName)}}
+$args=@('--alias',$p.harnessModelId,'-m',$modelArg,'--host','127.0.0.1','--port','8080','-ngl',[string]$p.gpuLayers,'-fa','on','-c',[string]$p.context,'-np',[string]$p.parallel,'-t',[string]$cpu.Physical,'-tb',[string]$cpu.Logical,'--temp','0.7','--top-p','0.95','--top-k','20','--min-p','0','--jinja')
+if($p.PSObject.Properties.Name -contains 'kv4' -and $p.kv4){$args+=@('--cache-type-k','q4_0','--cache-type-v','q4_0')}
+$visionEnabled = -not ($p.PSObject.Properties.Name -contains 'vision') -or [bool]$p.vision
+if($visionEnabled -and $p.model -eq '27B'){$mm=Get-ChildItem $modelDir -Filter '*mmproj*.gguf' -File -ErrorAction SilentlyContinue | Select-Object -First 1;if($mm){$args+=@('--mmproj',$mm.FullName)}}
 if($p.reasoning -eq 'disabled'){$args+=@('--reasoning-budget','0','--reasoning-format','none','--chat-template-kwargs','{"enable_thinking":false}')}
 if($env:QND_DRY_RUN -eq '1'){Write-Output "PROFILE $($p.id)";Write-Output "BACKEND $($p.backend)";Write-Output ($bin + ' ' + ($args -join ' '));exit 0}
 if($p.family -eq 'bonsai2' -and $p.backend -eq 'vulkan' -and $p.ggufPattern -like '*PQ2_0*'){throw 'Refusing Bonsai 2 PQ2_0 on Vulkan.'}
 if(-not (Test-Path $bin)){throw "Missing backend binary: $bin (run setup first)"}; if(-not $model){throw "Missing model $($p.ggufPattern) (run setup first)"}
-Write-Host "[INFO] Profile: $($p.id)";Write-Host "[INFO] Model: $($model.FullName)";Write-Host "[INFO] Backend: $bin";Write-Host "[INFO] Context: $($p.context)"
+Write-Host "[INFO] Profile: $($p.id)";Write-Host "[INFO] Model: $($model.FullName)";Write-Host "[INFO] Backend: $bin";Write-Host "[INFO] Context: $($p.context)";if($p.PSObject.Properties.Name -contains 'kv4' -and $p.kv4){Write-Host '[INFO] KV cache: q4_0'}
 $psi=[Diagnostics.ProcessStartInfo]::new();$psi.FileName=$bin;$psi.UseShellExecute=$false
 foreach($a in $args){$psi.ArgumentList.Add([string]$a)}
 $proc=[Diagnostics.Process]::new();$proc.StartInfo=$psi;if(-not $proc.Start()){throw 'Failed to start llama-server.'}
