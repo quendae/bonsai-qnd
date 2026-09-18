@@ -8,11 +8,13 @@ $p = Select-QndProfile -Platform windows -GpuNames @('AMD Radeon RX 6950 XT'); A
 $failed=$false; try { Select-QndProfile -Platform windows -GpuNames @('NVIDIA GTX 1080') | Out-Null } catch { $failed=$true }; if (-not $failed) { throw 'Unknown Windows GPU should fail safe.' }
 $p = Get-QndProfile 'amd-rx6950xt'
 Assert-Equal $p.family 'bonsai2' 'AMD current family'
-if ($p.ggufPattern -notlike '*PTQ1_0*') { throw 'AMD current Vulkan profile must use Bonsai 2 PTQ1_0.' }
+Assert-Equal $p.backend 'hip' 'AMD current backend'
+if ($p.ggufPattern -notlike '*PQ2_0*') { throw 'AMD current HIP profile must use Bonsai 2 PQ2_0.' }
 Assert-Equal $p.context 131072 'AMD current context'
 Assert-Equal $p.kv4 $true 'AMD current KV4'
 Assert-Equal $p.vision $false 'AMD current text-only default'
 $p = Get-QndProfile 'amd-rx6950xt-legacy'
 Assert-Equal $p.family 'ternary' 'AMD legacy family'
+Assert-Equal $p.backend 'vulkan' 'AMD legacy backend'
 if ($p.ggufPattern -notlike '*g64*') { throw 'AMD legacy Vulkan profile must remain group-64.' }
 Write-Host 'Profile.Tests.ps1: PASS'
