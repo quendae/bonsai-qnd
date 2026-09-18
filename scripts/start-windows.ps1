@@ -15,7 +15,7 @@ $modelArg=if($model){$model.FullName}else{"<model:$($p.ggufPattern)>"}
 $args=@('--alias',$p.harnessModelId,'-m',$modelArg,'--host','127.0.0.1','--port','8080','-ngl',[string]$p.gpuLayers,'-fa','on','-c',[string]$p.context,'-np',[string]$p.parallel,'-t',[string]$cpu.Physical,'-tb',[string]$cpu.Logical,'--jinja')
 if($p.model -eq '27B'){$mm=Get-ChildItem $modelDir -Filter '*mmproj*.gguf' -File -ErrorAction SilentlyContinue | Select-Object -First 1;if($mm){$args+=@('--mmproj',$mm.FullName)}}
 if($p.reasoning -eq 'disabled'){$args+=@('--reasoning-budget','0','--reasoning-format','none','--chat-template-kwargs','{"enable_thinking":false}')}
-if($env:QND_DRY_RUN -eq '1'){Write-Output "PROFILE $($p.id)";Write-Output "BACKEND $($p.backend)";Write-Output (($bin,@($args)) -join ' ');exit 0}
+if($env:QND_DRY_RUN -eq '1'){Write-Output "PROFILE $($p.id)";Write-Output "BACKEND $($p.backend)";Write-Output ($bin + ' ' + ($args -join ' '));exit 0}
 if($p.family -eq 'bonsai2' -and $p.backend -eq 'vulkan' -and $p.ggufPattern -like '*PQ2_0*'){throw 'Refusing Bonsai 2 PQ2_0 on Vulkan.'}
 if(-not (Test-Path $bin)){throw "Missing backend binary: $bin (run setup first)"}; if(-not $model){throw "Missing model $($p.ggufPattern) (run setup first)"}
 Write-Host "[INFO] Profile: $($p.id)";Write-Host "[INFO] Model: $($model.FullName)";Write-Host "[INFO] Backend: $bin";Write-Host "[INFO] Context: $($p.context)"
