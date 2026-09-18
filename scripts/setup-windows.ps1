@@ -8,21 +8,28 @@ $p = if($Profile){Get-QndProfile $Profile}else{Select-QndProfile -Platform windo
 if($p.platform -ne 'windows'){ throw "Profile '$($p.id)' is not a Windows profile." }
 $lock = Get-Content -Raw (Join-Path $Root 'upstream.lock.json') | ConvertFrom-Json
 $bonsaiDir = Join-Path $Root '.runtime\bonsai'
-$leanRx6950 = $p.id -in @('amd-rx6950xt','amd-rx6950xt-legacy')
+$leanRx6950 = $p.id -in @('amd-rx6950xt','amd-rx6950xt-vulkan','amd-rx6950xt-legacy')
 $modelRepo = $null
 $modelAllow = @()
 $needMmproj = $false
 $backendAsset = $null
-if($p.id -eq 'amd-rx6950xt'){
-  $modelRepo = 'prism-ml/Ternary-Bonsai-2-27B-gguf'
-  $modelAllow = @('*-PQ2_0.gguf')
-  $needMmproj = $false
-  $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-hip-radeon-x64.zip"
-} elseif($p.id -eq 'amd-rx6950xt-legacy'){
-  $modelRepo = 'prism-ml/Ternary-Bonsai-27B-gguf'
-  $modelAllow = @('*Q2_g64.gguf','*mmproj*.gguf')
-  $needMmproj = $true
-  $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-vulkan-x64.zip"
+switch($p.id){
+  'amd-rx6950xt' {
+    $modelRepo = 'prism-ml/Ternary-Bonsai-2-27B-gguf'
+    $modelAllow = @('*-PQ2_0.gguf')
+    $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-hip-radeon-x64.zip"
+  }
+  'amd-rx6950xt-vulkan' {
+    $modelRepo = 'prism-ml/Ternary-Bonsai-2-27B-gguf'
+    $modelAllow = @('*-PTQ1_0.gguf')
+    $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-vulkan-x64.zip"
+  }
+  'amd-rx6950xt-legacy' {
+    $modelRepo = 'prism-ml/Ternary-Bonsai-27B-gguf'
+    $modelAllow = @('*Q2_g64.gguf','*mmproj*.gguf')
+    $needMmproj = $true
+    $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-vulkan-x64.zip"
+  }
 }
 
 Write-Output "PROFILE=$($p.id)"
