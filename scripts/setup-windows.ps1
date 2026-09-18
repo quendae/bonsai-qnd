@@ -85,15 +85,33 @@ function Get-QndPython {
   throw 'Python 3.11+ is required.'
 }
 
+function New-QndDownloadVenv([string]$VenvDir){
+  $python = Get-QndPython
+  if(Test-Path $VenvDir){ Remove-Item -LiteralPath $VenvDir -Recurse -Force }
+  Write-Host "==> Creating lightweight download environment ..." -ForegroundColor Cyan
+  & $python -m venv $VenvDir
+  if($LASTEXITCODE -ne 0){ throw 'Failed to create Python venv.' }
+}
+
 function Ensure-QndDownloadPython {
   $venvDir = Join-Path $bonsaiDir '.venv'
   $venvPy = Join-Path $venvDir 'Scripts\python.exe'
   if(-not (Test-Path $venvPy)){
-    $python = Get-QndPython
-    Write-Host "==> Creating lightweight download environment ..." -ForegroundColor Cyan
-    & $python -m venv $venvDir
-    if($LASTEXITCODE -ne 0){ throw 'Failed to create Python venv.' }
+    New-QndDownloadVenv $venvDir
   }
+
+  & $venvPy -m pip --version 2>$null | Out-Null
+  if($LASTEXITCODE -ne 0){
+    Write-Host '==> Download environment has no pip; repairing with ensurepip ...' -ForegroundColor Yellow
+    & $venvPy -m ensurepip --upgrade
+    if($LASTEXITCODE -ne 0){
+      Write-Warning 'ensurepip failed in the existing download environment; recreating it from the system Python.'
+      New-QndDownloadVenv $venvDir
+    }
+    & $venvPy -m pip --version 2>$null | Out-Null
+    if($LASTEXITCODE -ne 0){ throw 'Download environment has no working pip even after repair/recreation.' }
+  }
+
   Write-Host '==> Ensuring huggingface-hub ...' -ForegroundColor Cyan
   & $venvPy -m pip install --disable-pip-version-check -q 'huggingface-hub>=1.0'
   if($LASTEXITCODE -ne 0){ throw 'Failed to install huggingface-hub.' }
