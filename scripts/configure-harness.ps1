@@ -1,9 +1,10 @@
 [CmdletBinding()]
-param([string]$Profile, [string]$DshHome)
+param([string]$Profile, [Nullable[int]]$Context, [string]$DshHome)
 $ErrorActionPreference = 'Stop'
 $Root = if ($env:QND_ROOT) { (Resolve-Path $env:QND_ROOT).Path } else { (Resolve-Path (Join-Path $PSScriptRoot '..')).Path }
 Import-Module (Join-Path $Root 'scripts\lib\Profile.psm1') -Force
 $p = if ($Profile) { Get-QndProfile $Profile } else { Select-QndProfile -Platform 'windows' }
+$ctx = Resolve-QndContext -Profile $p -Override $Context
 if (-not $DshHome) { $DshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $Root '.runtime\dsh-home' } }
 if (-not $env:BONSAI_LOCAL_API_KEY) { $env:BONSAI_LOCAL_API_KEY = 'qnd-local' }
 New-Item -ItemType Directory -Force -Path $DshHome | Out-Null
@@ -21,7 +22,7 @@ llm-pi-ai:
       models:
         - id: $($p.harnessModelId)
           name: Bonsai QND
-          contextWindow: $($p.context)
+          contextWindow: $ctx
           maxTokens: 4096
           input: [text]
 agent-default-model:
