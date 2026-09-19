@@ -28,6 +28,21 @@ foreach($needle in @(
   'LEAN_MODEL_REPO=prism-ml/Ternary-Bonsai-27B-gguf',
   'LEAN_MODEL_ALLOW=*Q2_g64.gguf;*mmproj*.gguf'
 )) { if(-not $out.Contains($needle)){ throw "legacy setup missing $needle" } }
+$out = & (Join-Path $Root 'scripts\setup-windows.ps1') -Profile nvidia-rtx3060 | Out-String
+foreach($needle in @(
+  'PROFILE=nvidia-rtx3060',
+  'BONSAI_FAMILY=bonsai2',
+  'BONSAI_MODEL=27B',
+  'BONSAI_BACKEND=cuda',
+  'BONSAI_NGL=99',
+  'BONSAI_CTX=65536',
+  'LEAN_SETUP=1',
+  'LEAN_MODEL_REPO=prism-ml/Ternary-Bonsai-2-27B-gguf',
+  'LEAN_MODEL_ALLOW=*-PQ2_0.gguf',
+  'LEAN_BACKEND_ASSET=llama-prism-b10683-d8f26ee-bin-win-cuda-12.4-x64.zip',
+  'LEAN_BACKEND_RUNTIME_ASSET=cudart-llama-bin-win-cuda-12.4-x64.zip'
+)) { if(-not $out.Contains($needle)){ throw "RTX 3060 setup missing $needle" } }
+if($out.Contains('upstream setup')) { throw 'RTX 3060 setup must not call the heavyweight upstream setup path' }
 Remove-Item Env:QND_DRY_RUN -ErrorAction SilentlyContinue
 
 # Ensure-QndDownloadPython is assigned to $downloadPython, so every external command
