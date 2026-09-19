@@ -49,7 +49,9 @@ function Select-QndProfile {
         if (-not $GpuNames) {
             $GpuNames = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | ForEach-Object Name)
         }
-        if (($GpuNames -join ' ') -match '(?i)(RX\s*6950\s*XT|Radeon.*6950.*XT)') { return Get-QndProfile 'amd-rx6950xt' }
+        $gpuText = $GpuNames -join ' '
+        if ($gpuText -match '(?i)(RX\s*6950\s*XT|Radeon.*6950.*XT)') { return Get-QndProfile 'amd-rx6950xt' }
+        if ($gpuText -match '(?i)(GeForce\s+)?RTX\s*3060') { return Get-QndProfile 'nvidia-rtx3060' }
         throw "No safe automatic profile for Windows GPU(s): $($GpuNames -join ', ')"
     }
     throw "Unsupported platform '$Platform'. Choose a profile explicitly."
