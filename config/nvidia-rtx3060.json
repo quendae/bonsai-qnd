@@ -1,0 +1,16 @@
+{
+  "id": "nvidia-rtx3060",
+  "platform": "windows",
+  "family": "bonsai2",
+  "model": "27B",
+  "backend": "cuda",
+  "ggufPattern": "*-PQ2_0.gguf",
+  "context": 65536,
+  "gpuLayers": 99,
+  "parallel": 1,
+  "harnessModelId": "bonsai-qnd",
+  "experimental": false,
+  "reasoning": "model-default",
+  "kv4": true,
+  "vision": false
+}
