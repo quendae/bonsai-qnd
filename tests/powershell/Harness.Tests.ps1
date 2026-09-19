@@ -20,6 +20,13 @@ try {
     if($env:BONSAI_LOCAL_API_KEY -ne 'qnd-local'){ throw 'RTX 3060 Harness must bootstrap the local provider credential.' }
   } finally { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
 
+  $tmp=Join-Path ([IO.Path]::GetTempPath()) ("qnd-"+[guid]::NewGuid())
+  try {
+    & (Join-Path $Root 'scripts\configure-harness.ps1') -Profile nvidia-rtx3060 -Context 131072 -DshHome $tmp | Out-Null
+    $s=Get-Content -Raw (Join-Path $tmp 'settings.yaml')
+    if(-not $s.Contains('contextWindow: 131072')){ throw 'Harness must receive the runtime context override.' }
+  } finally { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
+
   $env:BONSAI_LOCAL_API_KEY='custom-local-key'
   $tmp=Join-Path ([IO.Path]::GetTempPath()) ("qnd-"+[guid]::NewGuid())
   try {
