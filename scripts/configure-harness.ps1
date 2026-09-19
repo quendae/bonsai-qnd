@@ -5,12 +5,14 @@ $Root = if ($env:QND_ROOT) { (Resolve-Path $env:QND_ROOT).Path } else { (Resolve
 Import-Module (Join-Path $Root 'scripts\lib\Profile.psm1') -Force
 $p = if ($Profile) { Get-QndProfile $Profile } else { Select-QndProfile -Platform 'windows' }
 if (-not $DshHome) { $DshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $Root '.runtime\dsh-home' } }
+if (-not $env:BONSAI_LOCAL_API_KEY) { $env:BONSAI_LOCAL_API_KEY = 'qnd-local' }
 New-Item -ItemType Directory -Force -Path $DshHome | Out-Null
 $content = @"
 llm-pi-ai:
   providers:
     bonsai-local:
       displayName: Bonsai QND
+      apiKeyEnv: BONSAI_LOCAL_API_KEY
       api: openai-completions
       baseURL: http://127.0.0.1:8080/v1
       compat:
