@@ -16,6 +16,12 @@ try {
   $out = & (Join-Path $Root 'qnd.ps1') setup -Profile nvidia-rtx3060 -Context 131072 | Out-String
   if(-not $out.Contains('BONSAI_CTX=131072')) { throw 'qnd setup must report overridden context without changing the profile file' }
 
+  $out = & (Join-Path $Root 'qnd.ps1') harness -Profile nvidia-rtx3060 -Context 131072 -ApiBaseUrl 'http://192.168.1.50:8080/v1' | Out-String
+  foreach($needle in @('HARNESS_PROFILE nvidia-rtx3060','HARNESS_CONTEXT 131072','HARNESS_API_BASE_URL http://192.168.1.50:8080/v1')) {
+    if(-not $out.Contains($needle)){ throw "qnd harness missing $needle" }
+  }
+  if($out.Contains('llama-server')){ throw 'qnd harness must not start or require a local llama-server.' }
+
   $failed=$false
   try { & (Join-Path $Root 'qnd.ps1') start -Profile nvidia-rtx3060 -Context 262145 | Out-Null } catch { $failed=$true }
   if(-not $failed){ throw 'Bonsai 2 context above 262144 must fail validation' }
