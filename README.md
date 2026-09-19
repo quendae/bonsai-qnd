@@ -6,7 +6,7 @@ Hardware-aware local Bonsai runtime for three concrete targets:
 - **Windows + GeForce RTX 3060 12 GB** — current Bonsai 2 27B, PQ2_0, CUDA 12.4, full GPU offload, KV4 context.
 - **Debian LXC + Intel i3-10100 + 16 GB RAM** — Bonsai 27B Q1_0 CPU agent profile, with an optional faster Bonsai 8B Q1_0 profile.
 
-The model is served by PrismML's pinned `llama-server`; **DeepSeek Harness** connects to it as a local OpenAI-compatible provider named `bonsai-local` and exposes its web UI on port 3080.
+The model is served by PrismML's pinned `llama-server`. **DeepSeek Harness** connects to it through an OpenAI-compatible provider named `bonsai-local`. The model API can stay on localhost or be exposed to the LAN; Harness itself remains a local UI on port 3080.
 
 ## Why this exists
 
@@ -43,6 +43,24 @@ QND does not silently follow an upstream branch.
 
 List them locally with `qnd.ps1 profiles` or `./qnd.sh profiles`.
 
+## Runtime context override
+
+The profile context is the safe default, not a hard-coded runtime limit. On Windows you can override it without creating another profile:
+
+```powershell
+.\qnd.ps1 start -Profile nvidia-rtx3060 -Context 131072
+```
+
+The same value is passed to `llama-server` and written into the local Harness model metadata. For Bonsai 2, QND accepts up to `262144` tokens and rejects larger values. Increasing context increases KV-cache memory use and prompt latency.
+
+Examples:
+
+```powershell
+.\qnd.ps1 start -Profile nvidia-rtx3060 -Context 131072
+.\qnd.ps1 start -Profile nvidia-rtx3060 -Context 196608
+.\qnd.ps1 start -Profile nvidia-rtx3060 -Context 262144
+```
+
 ## Windows — RX 6950 XT
 
 ### Current Bonsai 2 profile
@@ -53,44 +71,15 @@ The default RX 6950 XT profile prioritizes the current model and answer quality 
 - `PTQ1_0` weights;
 - PrismML Windows Vulkan llama.cpp backend;
 - full GPU offload (`-ngl 99`);
-- 65536-token configured context;
+- 65536-token default context;
 - Q4_0 K/V cache;
 - one server slot;
-- text-only by default, so the multimodal projector does not consume VRAM;
+- text-only by default;
 - sampling is left to the GGUF/model metadata instead of being overridden by QND.
-
-Bonsai 2 itself supports a substantially larger context than QND's default. QND starts at 65536 on the RX 6950 XT as a conservative validated point before increasing the VRAM budget further.
 
 The current Bonsai 2/PTQ1_0/Vulkan profile has been run successfully on the target RX 6950 XT 16 GB. The first real-hardware observation was about **8 tok/s generation**; treat that as a machine-specific baseline rather than a general PrismML benchmark.
 
-### Why not HIP by default?
-
-PrismML ships a Windows HIP/Radeon build and PQ2_0 has optimized HIP kernels. However, AMD's current Windows HIP SDK 7.2 support table marks the RX 6950 XT / gfx1030 as unsupported. Older HIP SDK releases did officially support this GPU, so QND keeps `amd-rx6950xt-hip` as an explicit experiment rather than making an unsupported runtime combination the default.
-
-### Known-good legacy baseline
-
-The `amd-rx6950xt-legacy` profile was validated on real RX 6950 XT 16 GB hardware on 2026-09-18 with Ternary-Bonsai 27B Q2 group-64 and Vulkan.
-
-Observed timings after warm-up:
-
-- prompt prefill: about **239 tok/s** on a 276-token request;
-- generation: about **47.7 tok/s**;
-- native OpenAI tool call: **PASS**;
-- normal chat completion: **PASS**;
-- DeepSeek Harness connection through `bonsai-local / bonsai-qnd`: **PASS**.
-
-Those numbers apply to the legacy Ternary/Vulkan profile only; Bonsai 2 PTQ1_0 is slower on this path.
-
-### Requirements
-
-- Windows 11
-- PowerShell 7
-- Git
-- Python 3.11+
-- working AMD Vulkan driver/runtime
-- Node.js + npm/npx for DeepSeek Harness
-
-### Setup — current Bonsai 2/Vulkan
+### Setup
 
 ```powershell
 .\qnd.ps1 setup -Profile amd-rx6950xt
@@ -98,17 +87,9 @@ Those numbers apply to the legacy Ternary/Vulkan profile only; Bonsai 2 PTQ1_0 i
 
 On an RX 6950 XT you can normally omit `-Profile`; auto-detection is intentionally narrow and fails rather than guessing on unknown Windows GPUs.
 
-The setup is intentionally lean. For the primary profile it downloads only:
-
-1. the pinned Bonsai-demo checkout;
-2. `*-PTQ1_0.gguf` from `prism-ml/Ternary-Bonsai-2-27B-gguf`;
-3. the pinned PrismML Windows Vulkan llama.cpp archive.
-
-It does not download the old Ternary model, PQ2_0, vision projector, or unrelated backends.
+The lean setup downloads only the selected Bonsai 2 PTQ1_0 GGUF and pinned Vulkan backend.
 
 ### Experimental HIP/PQ2 profile
-
-If you intentionally have an older compatible HIP runtime installed and want to compare the faster packing:
 
 ```powershell
 .\qnd.ps1 setup -Profile amd-rx6950xt-hip
@@ -124,65 +105,24 @@ This is not the default because current AMD HIP SDK 7.2 does not officially supp
 .\qnd.ps1 start -Profile amd-rx6950xt-legacy
 ```
 
-This is the previously verified Ternary-Bonsai group-64/Vulkan path.
-
-### Diagnose
-
-```powershell
-.\qnd.ps1 doctor -Profile amd-rx6950xt
-```
-
-With no server running, doctor checks the host, pinned checkout, selected GGUF and backend. If port 8080 is already serving QND, it additionally performs:
-
-1. `/v1/models` health check;
-2. normal chat completion;
-3. native OpenAI tool-call test using a trivial `echo_value` function.
-
-### Start Bonsai + DeepSeek Harness
-
-```powershell
-.\qnd.ps1 start -Profile amd-rx6950xt
-```
-
-Endpoints:
-
-- llama-server API: `http://127.0.0.1:8080/v1`
-- DeepSeek Harness: `http://127.0.0.1:3080`
-
-The launcher passes `--alias bonsai-qnd`, so Harness can use a stable model id independent of the underlying GGUF filename.
-
 ## Windows — RTX 3060 12 GB
 
-The `nvidia-rtx3060` profile keeps the same current Bonsai 2 27B model but switches to PrismML's optimized NVIDIA path:
+The `nvidia-rtx3060` profile uses:
 
-- `PQ2_0` weights;
+- Bonsai 2 27B `PQ2_0`;
 - pinned PrismML CUDA 12.4 llama.cpp backend;
 - bundled pinned CUDA runtime DLL archive;
 - full GPU offload (`-ngl 99`);
-- 65536-token configured context;
+- 65536-token default context;
 - Q4_0 K/V cache;
 - one server slot;
-- text-only by default;
-- model/GGUF sampling defaults are preserved.
-
-### Requirements
-
-- Windows 11
-- PowerShell 7
-- Git
-- Python 3.11+
-- current NVIDIA driver with RTX 3060 support
-- Node.js + npm/npx for DeepSeek Harness
-
-QND downloads the matching pinned CUDA runtime DLL package next to `llama-server.exe`; it does not depend on the user manually copying PrismML runtime DLLs into the QND directory.
+- text-only by default.
 
 ### Setup
 
 ```powershell
 .\qnd.ps1 setup -Profile nvidia-rtx3060
 ```
-
-On a machine whose detected GPU name contains `RTX 3060`, the profile can also be auto-selected by omitting `-Profile`. Auto-detection remains intentionally narrow; another NVIDIA GPU is not silently treated as a 3060.
 
 The lean setup downloads only:
 
@@ -191,31 +131,45 @@ The lean setup downloads only:
 3. `llama-prism-b10683-d8f26ee-bin-win-cuda-12.4-x64.zip`;
 4. `cudart-llama-bin-win-cuda-12.4-x64.zip`.
 
-It does not download PTQ1_0, Vulkan, HIP, vision projector or unrelated models.
-
-### Diagnose and start
+### Local-only start
 
 ```powershell
-.\qnd.ps1 doctor -Profile nvidia-rtx3060
-.\qnd.ps1 start  -Profile nvidia-rtx3060
+.\qnd.ps1 start -Profile nvidia-rtx3060 -Context 131072
 ```
 
-The static Windows test suite covers profile selection, the PQ2_0/CUDA setup contract, launcher arguments, KV4, Harness context and doctor output. Real RTX 3060 hardware validation is still required before this profile is promoted from the feature branch to `main`.
+This keeps the model API on:
 
-## Debian LXC — i3-10100 / 16 GB RAM
-
-The intended target is a Debian LXC on Proxmox with the host CPU exposed and **16 GB effective cgroup memory**.
-
-### Requirements
-
-```bash
-apt update
-apt install -y git curl python3 nodejs npm
+```text
+http://127.0.0.1:8080/v1
 ```
 
-The CPU profiles use a lean setup path. They do not run the heavyweight upstream setup or auto-detect host GPU tooling. Instead QND downloads exactly one `Q1_0` GGUF for the selected size and exactly one pinned x86_64 CPU llama.cpp archive.
+### LAN server mode
 
-### Agent profile (27B)
+To make only the model API reachable from other devices on the local network:
+
+```powershell
+.\qnd.ps1 start -Profile nvidia-rtx3060 -Context 131072 -Bind 0.0.0.0
+```
+
+or use the convenience launcher:
+
+```bat
+start-nvidia-lan.bat -Context 131072
+```
+
+Clients then use the server's real LAN address, for example:
+
+```text
+http://192.168.1.50:8080/v1
+```
+
+Do **not** use `0.0.0.0` as the client URL; it is only the server bind address.
+
+If Windows Firewall blocks port 8080, create an inbound rule for TCP 8080 on the Private profile. QND does not change firewall rules automatically.
+
+## Debian LXC — CPU
+
+### Agent profile
 
 ```bash
 ./qnd.sh setup --profile cpu-agent
@@ -223,30 +177,23 @@ The CPU profiles use a lean setup path. They do not run the heavyweight upstream
 ./qnd.sh start --profile cpu-agent
 ```
 
-The 27B 1-bit GGUF is small enough for the target RAM, but CPU generation will still be slow. QND uses:
-
-- `-ngl 0`
-- 8192 context
-- physical cores for generation threads when detectable
-- logical CPUs for batch/prefill
-- thinking disabled to avoid spending minutes on hidden reasoning before visible output
-
-`cpu-agent` refuses to set up below **12 GiB effective memory**. The effective value comes from cgroup v2 `memory.max` when finite, otherwise `/proc/meminfo`.
-
-The lean CPU setup resolves the exact GGUF filename through the Hugging Face model metadata API using only `curl` and Python's standard library, then downloads that single file. No global pip installation or Hugging Face Python package is required.
-
-### Faster CPU profile (8B)
+For LAN API access:
 
 ```bash
-./qnd.sh setup --profile cpu-fast
-./qnd.sh start --profile cpu-fast
+./qnd.sh start --profile cpu-agent --bind 0.0.0.0
 ```
 
-Use this to validate the stack or for faster ordinary chat. The 8B model is not treated as equivalent to the 27B agent model for tool-call reliability; doctor reports a missing tool call as a warning for `cpu-fast` rather than a hard failure.
+or:
+
+```bash
+sh ./start-cpu-lan.sh
+```
+
+The CPU launcher keeps the selected/default CPU profile and only adds the LAN bind.
 
 ## Harness integration
 
-QND generates `.runtime/dsh-home/settings.yaml` and points DeepSeek Harness at:
+QND generates `.runtime/dsh-home/settings.yaml` with an OpenAI-compatible provider:
 
 ```yaml
 llm-pi-ai:
@@ -262,26 +209,82 @@ llm-pi-ai:
         - id: bonsai-qnd
 ```
 
-It also makes `bonsai-local / bonsai-qnd` the default for new Harness agents.
+`llama-server` itself does not require a secret on the local/LAN QND setup, but DeepSeek Harness requires a non-empty provider credential. QND therefore supplies `BONSAI_LOCAL_API_KEY=qnd-local` for the Harness process when the variable is not already defined. A user-supplied value is preserved.
 
-`llama-server` itself does not require a secret on localhost, but DeepSeek Harness requires a non-empty provider credential. QND therefore supplies `BONSAI_LOCAL_API_KEY=qnd-local` for the Harness process when the variable is not already defined. A user-supplied value is preserved.
+### Local Harness + remote QND model server
+
+This is the recommended two-computer layout when the RTX 3060 machine should provide inference but tools/agent execution should stay on the workstation running Harness.
+
+**Server PC — RTX 3060, e.g. `192.168.1.50`:**
+
+```powershell
+.\qnd.ps1 start -Profile nvidia-rtx3060 -Context 131072 -Bind 0.0.0.0
+```
+
+or:
+
+```bat
+start-nvidia-lan.bat -Context 131072
+```
+
+**Client PC — run Harness locally, point it at the server API:**
+
+```powershell
+.\qnd.ps1 harness `
+  -Profile nvidia-rtx3060 `
+  -Context 131072 `
+  -ApiBaseUrl http://192.168.1.50:8080/v1
+```
+
+QND first checks:
+
+```text
+http://192.168.1.50:8080/v1/models
+```
+
+Then it writes the remote `baseURL` into the local DSH settings and starts Harness locally at:
+
+```text
+http://127.0.0.1:3080
+```
+
+The resulting topology is:
+
+```text
+Client PC
+DeepSeek Harness 127.0.0.1:3080
+        |
+        | LAN / OpenAI-compatible HTTP
+        v
+192.168.1.50:8080/v1
+RTX 3060 + Bonsai 2 27B
+```
+
+DeepSeek Harness itself deliberately stays on loopback. The pinned upstream DSH CLI does not support exposing its tool-capable Web UI on `0.0.0.0`; only the model API is exposed to the LAN.
+
+The `harness` command does **not** start or require a local QND model server on the client machine.
+
+## Diagnose
+
+Windows example:
+
+```powershell
+.\qnd.ps1 doctor -Profile nvidia-rtx3060 -Context 131072
+```
+
+With a server running, doctor performs the API health check, normal chat completion and native tool-call test.
 
 ## Commands
 
-Windows RX 6950 XT:
+Windows:
 
 ```powershell
-.\qnd.ps1 setup  -Profile amd-rx6950xt
-.\qnd.ps1 doctor -Profile amd-rx6950xt
-.\qnd.ps1 start  -Profile amd-rx6950xt
-```
-
-Windows RTX 3060:
-
-```powershell
-.\qnd.ps1 setup  -Profile nvidia-rtx3060
-.\qnd.ps1 doctor -Profile nvidia-rtx3060
-.\qnd.ps1 start  -Profile nvidia-rtx3060
+.\qnd.ps1 profiles
+.\qnd.ps1 setup   -Profile nvidia-rtx3060
+.\qnd.ps1 doctor  -Profile nvidia-rtx3060 -Context 131072
+.\qnd.ps1 start   -Profile nvidia-rtx3060 -Context 131072
+.\qnd.ps1 start   -Profile nvidia-rtx3060 -Context 131072 -Bind 0.0.0.0
+.\qnd.ps1 harness -Profile nvidia-rtx3060 -Context 131072 -ApiBaseUrl http://192.168.1.50:8080/v1
 ```
 
 Linux:
@@ -291,21 +294,17 @@ Linux:
 ./qnd.sh setup  --profile cpu-agent
 ./qnd.sh doctor --profile cpu-agent
 ./qnd.sh start  --profile cpu-agent
+./qnd.sh start  --profile cpu-agent --bind 0.0.0.0
 ```
 
-For direct server-only use on Linux:
-
-```bash
-./scripts/start-linux.sh --profile cpu-agent --server-only
-```
-
-## Deliberate v1 limits
+## Deliberate limits
 
 - No Bonsai 2 PQ2_0 over Vulkan.
 - No speculative decoding by default.
 - No MCP servers enabled by default; their schemas increase prompt prefill cost and are especially painful on CPU.
-- The primary GPU profiles are text-only for now; vision can be enabled after the Bonsai 2 VRAM budget is validated on each backend.
-- Services bind to `127.0.0.1`, not LAN interfaces.
+- The primary GPU profiles are text-only for now.
+- Model APIs default to `127.0.0.1`; LAN exposure requires explicit `-Bind 0.0.0.0` / `--bind 0.0.0.0`.
+- DeepSeek Harness Web UI remains on `127.0.0.1:3080`; QND does not expose the tool-capable Harness UI to the LAN.
 
 ## Tests
 
