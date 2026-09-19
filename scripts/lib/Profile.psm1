@@ -35,6 +35,22 @@ function Get-QndProfile {
     return $profile
 }
 
+function Resolve-QndContext {
+    param(
+        [Parameter(Mandatory)]$Profile,
+        [Nullable[int]]$Override
+    )
+    if ($null -eq $Override) { return [int]$Profile.context }
+    $value = [int]$Override
+    if ($value -lt 1024) { throw 'Context must be at least 1024 tokens.' }
+    $max = if ($Profile.family -eq 'bonsai2') { 262144 } else { [int]$Profile.context }
+    if ($value -gt $max) {
+        if ($Profile.family -eq 'bonsai2') { throw "Bonsai 2 context cannot exceed 262144 tokens (requested $value)." }
+        throw "Profile '$($Profile.id)' has not been validated above $max context tokens (requested $value)."
+    }
+    return $value
+}
+
 function Select-QndProfile {
     param(
         [string[]]$GpuNames,
@@ -57,4 +73,4 @@ function Select-QndProfile {
     throw "Unsupported platform '$Platform'. Choose a profile explicitly."
 }
 
-Export-ModuleMember -Function Get-QndRoot,Get-QndProfilePath,Get-QndProfile,Test-QndProfile,Select-QndProfile
+Export-ModuleMember -Function Get-QndRoot,Get-QndProfilePath,Get-QndProfile,Test-QndProfile,Resolve-QndContext,Select-QndProfile
