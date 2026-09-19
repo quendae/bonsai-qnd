@@ -1,11 +1,12 @@
 [CmdletBinding()]
-param([string]$Profile, [switch]$SkipDownload)
+param([string]$Profile, [Nullable[int]]$Context, [switch]$SkipDownload)
 $ErrorActionPreference='Stop'
 $Root = if($env:QND_ROOT){(Resolve-Path $env:QND_ROOT).Path}else{(Resolve-Path (Join-Path $PSScriptRoot '..')).Path}
 $env:QND_ROOT=$Root
 Import-Module (Join-Path $Root 'scripts\lib\Profile.psm1') -Force
 $p = if($Profile){Get-QndProfile $Profile}else{Select-QndProfile -Platform windows}
 if($p.platform -ne 'windows'){ throw "Profile '$($p.id)' is not a Windows profile." }
+$ctx = Resolve-QndContext -Profile $p -Override $Context
 $lock = Get-Content -Raw (Join-Path $Root 'upstream.lock.json') | ConvertFrom-Json
 $bonsaiDir = Join-Path $Root '.runtime\bonsai'
 $leanWindowsGpu = $p.id -in @('amd-rx6950xt','amd-rx6950xt-hip','amd-rx6950xt-legacy','nvidia-rtx3060')
@@ -44,7 +45,7 @@ Write-Output "BONSAI_FAMILY=$($p.family)"
 Write-Output "BONSAI_MODEL=$($p.model)"
 Write-Output "BONSAI_BACKEND=$($p.backend)"
 Write-Output "BONSAI_NGL=$($p.gpuLayers)"
-Write-Output "BONSAI_CTX=$($p.context)"
+Write-Output "BONSAI_CTX=$ctx"
 if($leanWindowsGpu){
   Write-Output 'LEAN_SETUP=1'
   Write-Output "LEAN_MODEL_REPO=$modelRepo"
@@ -52,6 +53,7 @@ if($leanWindowsGpu){
   Write-Output "LEAN_BACKEND_ASSET=$backendAsset"
   if($backendRuntimeAsset){ Write-Output "LEAN_BACKEND_RUNTIME_ASSET=$backendRuntimeAsset" }
 }
+if($ctx -gt [int]$p.context){ Write-Warning "Context override $ctx is above profile default $($p.context); setup files are unchanged, but runtime VRAM/RAM use will increase." }
 if($SkipDownload -or $env:QND_DRY_RUN -eq '1'){
   Write-Output "DRY_RUN checkout $($lock.bonsai.repository)@$($lock.bonsai.commit)"
   if(-not $leanWindowsGpu){ Write-Output 'DRY_RUN upstream setup with BONSAI_OPENWEBUI=0 BONSAI_CODE_INTERPRETER=0' }
@@ -213,7 +215,7 @@ if($leanWindowsGpu){
   $names=@('BONSAI_FAMILY','BONSAI_MODEL','BONSAI_NGL','BONSAI_CTX','BONSAI_OPENWEBUI','BONSAI_CODE_INTERPRETER')
   $old=@{}; foreach($n in $names){$old[$n]=[Environment]::GetEnvironmentVariable($n,'Process')}
   try{
-    $env:BONSAI_FAMILY=$p.family; $env:BONSAI_MODEL=$p.model; $env:BONSAI_NGL=[string]$p.gpuLayers; $env:BONSAI_CTX=[string]$p.context
+    $env:BONSAI_FAMILY=$p.family; $env:BONSAI_MODEL=$p.model; $env:BONSAI_NGL=[string]$p.gpuLayers; $env:BONSAI_CTX=[string]$ctx
     $env:BONSAI_OPENWEBUI='0'; $env:BONSAI_CODE_INTERPRETER='0'
     & (Join-Path $bonsaiDir 'setup.ps1')
     if($LASTEXITCODE -and $LASTEXITCODE -ne 0){throw "upstream setup failed: $LASTEXITCODE"}
