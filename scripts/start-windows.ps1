@@ -1,26 +1,28 @@
 [CmdletBinding()]
-param([string]$Profile,[switch]$ServerOnly)
+param([string]$Profile,[Nullable[int]]$Context,[switch]$ServerOnly)
 $ErrorActionPreference='Stop'
 $Root=if($env:QND_ROOT){(Resolve-Path $env:QND_ROOT).Path}else{(Resolve-Path (Join-Path $PSScriptRoot '..')).Path}; $env:QND_ROOT=$Root
 Import-Module (Join-Path $Root 'scripts\lib\Profile.psm1') -Force
 Import-Module (Join-Path $Root 'scripts\lib\Resources.psm1') -Force
 $p=if($Profile){Get-QndProfile $Profile}else{Select-QndProfile -Platform windows}
 if($p.platform -ne 'windows'){throw "Not a Windows profile: $($p.id)"}
+$ctx=Resolve-QndContext -Profile $p -Override $Context
 $bonsaiDir=Join-Path $Root '.runtime\bonsai'
 $modelDir=switch($p.family){'bonsai2'{Join-Path $bonsaiDir "models\bonsai2-gguf\$($p.model)"};'ternary'{Join-Path $bonsaiDir "models\ternary-gguf\$($p.model)"};default{Join-Path $bonsaiDir "models\gguf\$($p.model)"}}
 $model=Get-ChildItem $modelDir -Filter $p.ggufPattern -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -notmatch 'mmproj|dspark|kv-bias'} | Select-Object -First 1
 $bin=Join-Path $bonsaiDir "bin\$($p.backend)\llama-server.exe"
 $cpu=Get-QndCpuCounts
 $modelArg=if($model){$model.FullName}else{"<model:$($p.ggufPattern)>"}
-$args=@('--alias',$p.harnessModelId,'-m',$modelArg,'--host','127.0.0.1','--port','8080','-ngl',[string]$p.gpuLayers,'-fa','on','-c',[string]$p.context,'-np',[string]$p.parallel,'-t',[string]$cpu.Physical,'-tb',[string]$cpu.Logical,'--jinja')
+$args=@('--alias',$p.harnessModelId,'-m',$modelArg,'--host','127.0.0.1','--port','8080','-ngl',[string]$p.gpuLayers,'-fa','on','-c',[string]$ctx,'-np',[string]$p.parallel,'-t',[string]$cpu.Physical,'-tb',[string]$cpu.Logical,'--jinja')
 if($p.PSObject.Properties.Name -contains 'kv4' -and $p.kv4){$args+=@('--cache-type-k','q4_0','--cache-type-v','q4_0')}
 $visionEnabled = -not ($p.PSObject.Properties.Name -contains 'vision') -or [bool]$p.vision
 if($visionEnabled -and $p.model -eq '27B'){$mm=Get-ChildItem $modelDir -Filter '*mmproj*.gguf' -File -ErrorAction SilentlyContinue | Select-Object -First 1;if($mm){$args+=@('--mmproj',$mm.FullName)}}
 if($p.reasoning -eq 'disabled'){$args+=@('--reasoning-budget','0','--reasoning-format','none','--chat-template-kwargs','{"enable_thinking":false}')}
-if($env:QND_DRY_RUN -eq '1'){Write-Output "PROFILE $($p.id)";Write-Output "BACKEND $($p.backend)";Write-Output ($bin + ' ' + ($args -join ' '));exit 0}
+if($env:QND_DRY_RUN -eq '1'){Write-Output "PROFILE $($p.id)";Write-Output "BACKEND $($p.backend)";Write-Output "CONTEXT $ctx";Write-Output ($bin + ' ' + ($args -join ' '));exit 0}
 if($p.family -eq 'bonsai2' -and $p.backend -eq 'vulkan' -and $p.ggufPattern -like '*PQ2_0*'){throw 'Refusing Bonsai 2 PQ2_0 on Vulkan.'}
 if(-not (Test-Path $bin)){throw "Missing backend binary: $bin (run setup first)"}; if(-not $model){throw "Missing model $($p.ggufPattern) (run setup first)"}
-Write-Host "[INFO] Profile: $($p.id)";Write-Host "[INFO] Model: $($model.FullName)";Write-Host "[INFO] Backend: $bin";Write-Host "[INFO] Context: $($p.context)";if($p.PSObject.Properties.Name -contains 'kv4' -and $p.kv4){Write-Host '[INFO] KV cache: q4_0'}
+Write-Host "[INFO] Profile: $($p.id)";Write-Host "[INFO] Model: $($model.FullName)";Write-Host "[INFO] Backend: $bin";Write-Host "[INFO] Context: $ctx";if($p.PSObject.Properties.Name -contains 'kv4' -and $p.kv4){Write-Host '[INFO] KV cache: q4_0'}
+if($ctx -gt [int]$p.context){Write-Warning "Context override $ctx is above profile default $($p.context); VRAM use and prompt latency will increase."}
 $psi=[Diagnostics.ProcessStartInfo]::new();$psi.FileName=$bin;$psi.UseShellExecute=$false
 foreach($a in $args){$psi.ArgumentList.Add([string]$a)}
 $proc=[Diagnostics.Process]::new();$proc.StartInfo=$psi;if(-not $proc.Start()){throw 'Failed to start llama-server.'}
@@ -33,8 +35,8 @@ try{
   if(-not (Get-Command node -ErrorAction SilentlyContinue)){throw 'Node.js is required for DeepSeek Harness.'}
   $npx=(Get-Command npx.cmd -ErrorAction SilentlyContinue);if(-not $npx){$npx=Get-Command npx -ErrorAction SilentlyContinue};if(-not $npx){throw 'npx is required for DeepSeek Harness.'}
   $env:DSH_HOME=if($env:DSH_HOME){$env:DSH_HOME}else{Join-Path $Root '.runtime\dsh-home'}
-  & (Join-Path $Root 'scripts\configure-harness.ps1') -Profile $p.id -DshHome $env:DSH_HOME | Out-Null
+  & (Join-Path $Root 'scripts\configure-harness.ps1') -Profile $p.id -Context $ctx -DshHome $env:DSH_HOME | Out-Null
   $lock=Get-Content -Raw (Join-Path $Root 'upstream.lock.json')|ConvertFrom-Json;$pkg="$($lock.deepseekHarness.npmPackage)@$($lock.deepseekHarness.npmVersion)"
-  Write-Host "[OK] Harness: http://127.0.0.1:3080 provider=bonsai-local model=$($p.harnessModelId)" -ForegroundColor Green
+  Write-Host "[OK] Harness: http://127.0.0.1:3080 provider=bonsai-local model=$($p.harnessModelId) context=$ctx" -ForegroundColor Green
   & $npx.Source --yes $pkg web --no-open
 } finally {if($proc -and -not $proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue}}
