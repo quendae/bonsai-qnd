@@ -43,12 +43,22 @@ foreach($needle in @(
   'LEAN_BACKEND_RUNTIME_ASSET=cudart-llama-bin-win-cuda-12.4-x64.zip'
 )) { if(-not $out.Contains($needle)){ throw "RTX 3060 setup missing $needle" } }
 if($out.Contains('upstream setup')) { throw 'RTX 3060 setup must not call the heavyweight upstream setup path' }
+$out = & (Join-Path $Root 'scripts\setup-windows.ps1') -Profile windows-cpu | Out-String
+foreach($needle in @(
+  'PROFILE=windows-cpu',
+  'BONSAI_FAMILY=bonsai',
+  'BONSAI_MODEL=27B',
+  'BONSAI_BACKEND=cpu',
+  'BONSAI_NGL=0',
+  'BONSAI_CTX=8192',
+  'LEAN_SETUP=1',
+  'LEAN_MODEL_REPO=prism-ml/Ternary-Bonsai-27B-gguf',
+  'LEAN_MODEL_ALLOW=*-Q1_0.gguf',
+  'LEAN_BACKEND_ASSET=llama-prism-b10683-d8f26ee-bin-win-cpu-x64.zip'
+)) { if(-not $out.Contains($needle)){ throw "Windows CPU setup missing $needle" } }
+if($out.Contains('upstream setup')) { throw 'Windows CPU setup must remain lean' }
 Remove-Item Env:QND_DRY_RUN -ErrorAction SilentlyContinue
 
-# Ensure-QndDownloadPython is assigned to $downloadPython, so every external command
-# inside it must keep informational stdout off PowerShell's success-output pipeline.
-# Otherwise assignment becomes an Object[] (command output + python.exe path) and
-# Download-QndSelectedModel later tries to invoke that whole array as a command.
 $setupText = Get-Content -Raw (Join-Path $Root 'scripts\setup-windows.ps1')
 foreach($pattern in @(
   '(?m)& \$venvPy -m ensurepip --upgrade\s*\|\s*Out-Host',
@@ -58,5 +68,6 @@ foreach($pattern in @(
 }
 if($setupText -notmatch 'Download environment has no pip; repairing with ensurepip') { throw 'setup must recover pip in an existing Windows venv' }
 if($setupText -notmatch 'ensurepip failed in the existing download environment; recreating it from the system Python') { throw 'setup must recreate an unrecoverable Windows venv' }
+if($setupText -notmatch 'Runtime already prepared') { throw 'GUI setup path must fast-exit when the selected runtime is already prepared' }
 
 Write-Host 'Setup.Tests.ps1: PASS'
