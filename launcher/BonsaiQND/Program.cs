@@ -4,29 +4,49 @@ using System.Text;
 
 namespace BonsaiQND;
 
-internal sealed record ModeOption(string Key, string Label, string Profile, int DefaultContext, int MaxContext, int[] Contexts)
+internal sealed record ModeOption(string Key, string Label, string Profile, int DefaultContext, int MaxContext, int[] Contexts, bool SupportsReasoning)
 {
     public override string ToString() => Label;
 }
 
-internal sealed record LaunchPlan(string Profile, int Context, string Bind);
+internal sealed record ReasoningOption(string Key, string Label)
+{
+    public override string ToString() => Label;
+}
+
+internal sealed record LaunchPlan(string Profile, int Context, string Reasoning, string Bind);
 
 internal static class LaunchPlanner
 {
     public static readonly ModeOption[] Modes =
     [
-        new("nvidia", "NVIDIA RTX 3060 — Bonsai 2 27B / CUDA", "nvidia-rtx3060", 65536, 262144, [65536, 131072, 196608, 262144]),
-        new("amd", "AMD RX 6950 XT — Bonsai 2 27B / Vulkan", "amd-rx6950xt", 65536, 262144, [65536, 131072, 196608, 262144]),
-        new("cpu", "CPU (Windows) — Bonsai 27B / Q1_0", "windows-cpu", 8192, 8192, [8192])
+        new("nvidia", "NVIDIA RTX 3060 — Bonsai 2 27B / CUDA", "nvidia-rtx3060", 65536, 262144, [65536, 131072, 196608, 262144], true),
+        new("amd", "AMD RX 6950 XT — Bonsai 2 27B / Vulkan", "amd-rx6950xt", 65536, 262144, [65536, 131072, 196608, 262144], true),
+        new("cpu", "CPU (Windows) — Bonsai 27B / Q1_0", "windows-cpu", 8192, 8192, [8192], false)
     ];
 
-    public static LaunchPlan Create(string mode, int context, bool lan)
+    public static readonly ReasoningOption[] ReasoningLevels =
+    [
+        new("off", "Off — 0 tokens"),
+        new("low", "Low — 512 tokens"),
+        new("medium", "Medium — 2048 tokens"),
+        new("high", "High — 8192 tokens"),
+        new("max", "Max — unlimited")
+    ];
+
+    public static LaunchPlan Create(string mode, int context, string reasoning, bool lan)
     {
         var selected = Modes.FirstOrDefault(m => string.Equals(m.Key, mode, StringComparison.OrdinalIgnoreCase))
             ?? throw new ArgumentException($"Unknown mode '{mode}'.");
         if (context < 1024 || context > selected.MaxContext)
             throw new ArgumentOutOfRangeException(nameof(context), $"Context for {selected.Key} must be between 1024 and {selected.MaxContext}.");
-        return new LaunchPlan(selected.Profile, context, lan ? "0.0.0.0" : "127.0.0.1");
+
+        var reasoningLevel = ReasoningLevels.FirstOrDefault(r => string.Equals(r.Key, reasoning, StringComparison.OrdinalIgnoreCase))
+            ?? throw new ArgumentException($"Unknown reasoning level '{reasoning}'.");
+        if (!selected.SupportsReasoning && reasoningLevel.Key != "off")
+            throw new ArgumentException($"Mode '{selected.Key}' supports Reasoning=Off only.");
+
+        return new LaunchPlan(selected.Profile, context, reasoningLevel.Key, lan ? "0.0.0.0" : "127.0.0.1");
     }
 }
 
@@ -35,13 +55,14 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args.Length >= 4 && args[0] == "--plan")
+        if (args.Length >= 5 && args[0] == "--plan")
         {
             try
             {
-                var plan = LaunchPlanner.Create(args[1], int.Parse(args[2]), string.Equals(args[3], "lan", StringComparison.OrdinalIgnoreCase));
+                var plan = LaunchPlanner.Create(args[1], int.Parse(args[2]), args[3], string.Equals(args[4], "lan", StringComparison.OrdinalIgnoreCase));
                 Console.WriteLine($"PROFILE={plan.Profile}");
                 Console.WriteLine($"CONTEXT={plan.Context}");
+                Console.WriteLine($"REASONING={plan.Reasoning}");
                 Console.WriteLine($"BIND={plan.Bind}");
                 return 0;
             }
@@ -62,6 +83,7 @@ internal sealed class MainForm : Form
 {
     private readonly ComboBox _mode = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly ComboBox _context = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly ComboBox _reasoning = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly CheckBox _lan = new() { Text = "Udostępnij API w sieci lokalnej (0.0.0.0:8080)", AutoSize = true };
     private readonly Button _start = new() { Text = "Uruchom", Width = 130, Height = 34 };
     private readonly Button _stop = new() { Text = "Zatrzymaj", Width = 130, Height = 34, Enabled = false };
@@ -75,16 +97,16 @@ internal sealed class MainForm : Form
     {
         Text = "Bonsai QND";
         Width = 700;
-        Height = 540;
-        MinimumSize = new Size(620, 460);
+        Height = 575;
+        MinimumSize = new Size(620, 490);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.Sizable;
         _root = FindRoot();
 
         foreach (var mode in LaunchPlanner.Modes) _mode.Items.Add(mode);
         _mode.SelectedIndex = 0;
-        _mode.SelectedIndexChanged += (_, _) => RefreshContexts();
-        RefreshContexts();
+        _mode.SelectedIndexChanged += (_, _) => RefreshModeSettings();
+        RefreshModeSettings();
 
         var title = new Label
         {
@@ -94,16 +116,16 @@ internal sealed class MainForm : Form
         };
         var subtitle = new Label
         {
-            Text = "Wybierz sprzęt, kontekst i dostęp LAN. Program przygotuje runtime i uruchomi serwer w tle.",
+            Text = "Wybierz sprzęt, kontekst, reasoning i dostęp LAN. Program przygotuje runtime i uruchomi serwer w tle.",
             AutoSize = true
         };
 
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
-            Height = 190,
+            Height = 225,
             ColumnCount = 2,
-            RowCount = 5,
+            RowCount = 6,
             Padding = new Padding(12),
             AutoSize = false
         };
@@ -115,16 +137,19 @@ internal sealed class MainForm : Form
         grid.Controls.Add(new Label { Text = "Kontekst", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 1);
         grid.Controls.Add(_context, 1, 1);
         _context.Dock = DockStyle.Fill;
-        grid.Controls.Add(new Label { Text = "Sieć", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 2);
-        grid.Controls.Add(_lan, 1, 2);
+        grid.Controls.Add(new Label { Text = "Reasoning", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 2);
+        grid.Controls.Add(_reasoning, 1, 2);
+        _reasoning.Dock = DockStyle.Fill;
+        grid.Controls.Add(new Label { Text = "Sieć", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 3);
+        grid.Controls.Add(_lan, 1, 3);
 
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, AutoSize = true };
         buttons.Controls.Add(_start);
         buttons.Controls.Add(_stop);
-        grid.Controls.Add(new Label { Text = "Sterowanie", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 3);
-        grid.Controls.Add(buttons, 1, 3);
-        grid.Controls.Add(new Label { Text = "Status", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 4);
-        grid.Controls.Add(_status, 1, 4);
+        grid.Controls.Add(new Label { Text = "Sterowanie", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 4);
+        grid.Controls.Add(buttons, 1, 4);
+        grid.Controls.Add(new Label { Text = "Status", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 5);
+        grid.Controls.Add(_status, 1, 5);
 
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 68, Padding = new Padding(12, 8, 12, 0), FlowDirection = FlowDirection.TopDown };
         top.Controls.Add(title);
@@ -146,6 +171,12 @@ internal sealed class MainForm : Form
 
     private ModeOption SelectedMode => (ModeOption)_mode.SelectedItem!;
 
+    private void RefreshModeSettings()
+    {
+        RefreshContexts();
+        RefreshReasoning();
+    }
+
     private void RefreshContexts()
     {
         if (_mode.SelectedItem is not ModeOption selected) return;
@@ -155,6 +186,18 @@ internal sealed class MainForm : Form
         if (_context.SelectedIndex < 0) _context.SelectedIndex = 0;
     }
 
+    private void RefreshReasoning()
+    {
+        if (_mode.SelectedItem is not ModeOption selected) return;
+        _reasoning.Items.Clear();
+        foreach (var level in LaunchPlanner.ReasoningLevels)
+        {
+            if (selected.SupportsReasoning || level.Key == "off") _reasoning.Items.Add(level);
+        }
+        var defaultKey = selected.SupportsReasoning ? "medium" : "off";
+        _reasoning.SelectedItem = _reasoning.Items.Cast<ReasoningOption>().First(r => r.Key == defaultKey);
+    }
+
     private async void StartClicked(object? sender, EventArgs e)
     {
         if (_serverProcess is not null) return;
@@ -162,10 +205,11 @@ internal sealed class MainForm : Form
         {
             var mode = SelectedMode;
             var context = Convert.ToInt32(_context.SelectedItem);
-            var plan = LaunchPlanner.Create(mode.Key, context, _lan.Checked);
+            var reasoning = ((ReasoningOption)_reasoning.SelectedItem!).Key;
+            var plan = LaunchPlanner.Create(mode.Key, context, reasoning, _lan.Checked);
             SetBusy(true);
             _status.Text = "Sprawdzanie / przygotowanie runtime...";
-            AppendLog($"=== {mode.Label} | context={plan.Context} | bind={plan.Bind} ===");
+            AppendLog($"=== {mode.Label} | context={plan.Context} | reasoning={plan.Reasoning} | bind={plan.Bind} ===");
             AppendLog("Uruchamiam setup. Jeśli runtime jest już gotowy, QND zakończy ten etap od razu.");
             var setupExit = await RunPowerShellOnceAsync("setup", plan, serverOnly: false);
             if (setupExit != 0) throw new InvalidOperationException($"Setup zakończył się kodem {setupExit}.");
@@ -190,8 +234,9 @@ internal sealed class MainForm : Form
             _status.Text = plan.Bind == "0.0.0.0" ? "Działa — API dostępne w LAN na porcie 8080" : "Działa — API tylko lokalnie na porcie 8080";
             _stop.Enabled = true;
             _start.Enabled = false;
-            _mode.Enabled = _context.Enabled = _lan.Enabled = false;
+            _mode.Enabled = _context.Enabled = _reasoning.Enabled = _lan.Enabled = false;
             AppendLog("[OK] Serwer gotowy: http://127.0.0.1:8080/v1");
+            AppendLog($"[INFO] Reasoning: {plan.Reasoning}");
             if (plan.Bind == "0.0.0.0") AppendLog("[LAN] Klienci używają rzeczywistego adresu IP tego komputera, np. http://192.168.1.50:8080/v1");
         }
         catch (Exception ex)
@@ -231,6 +276,8 @@ internal sealed class MainForm : Form
         psi.ArgumentList.Add(plan.Context.ToString());
         if (command == "start")
         {
+            psi.ArgumentList.Add("-Reasoning");
+            psi.ArgumentList.Add(plan.Reasoning);
             psi.ArgumentList.Add("-Bind");
             psi.ArgumentList.Add(plan.Bind);
             if (serverOnly) psi.ArgumentList.Add("-ServerOnly");
@@ -297,7 +344,7 @@ internal sealed class MainForm : Form
             _status.Text = "Zatrzymany";
             _stop.Enabled = false;
             _start.Enabled = true;
-            _mode.Enabled = _context.Enabled = _lan.Enabled = true;
+            _mode.Enabled = _context.Enabled = _reasoning.Enabled = _lan.Enabled = true;
         }
     }
 
@@ -316,7 +363,7 @@ internal sealed class MainForm : Form
         process.Dispose();
         _stop.Enabled = false;
         _start.Enabled = true;
-        _mode.Enabled = _context.Enabled = _lan.Enabled = true;
+        _mode.Enabled = _context.Enabled = _reasoning.Enabled = _lan.Enabled = true;
     }
 
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
@@ -348,6 +395,7 @@ internal sealed class MainForm : Form
         {
             _mode.Enabled = !busy;
             _context.Enabled = !busy;
+            _reasoning.Enabled = !busy;
             _lan.Enabled = !busy;
         }
     }
