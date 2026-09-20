@@ -18,8 +18,15 @@ Assert-Plan 'nvidia' 131072 'lan' @('PROFILE=nvidia-rtx3060','CONTEXT=131072','B
 Assert-Plan 'amd' 65536 'local' @('PROFILE=amd-rx6950xt','CONTEXT=65536','BIND=127.0.0.1')
 Assert-Plan 'cpu' 8192 'lan' @('PROFILE=windows-cpu','CONTEXT=8192','BIND=0.0.0.0')
 
-$bat=Get-Content -Raw (Join-Path $Root 'start-nvidia-lan.bat')
-if($bat -match '\bpwsh\b'){ throw 'legacy BAT must not require pwsh' }
-if($bat -notmatch 'powershell\.exe' -or $bat -notmatch 'ExecutionPolicy Bypass'){ throw 'legacy BAT must use Windows PowerShell with ExecutionPolicy Bypass' }
+foreach($name in @('start-nvidia-lan.bat','start-cpu-lan.bat')){
+  $bat=Get-Content -Raw (Join-Path $Root $name)
+  if($bat -match '\bpwsh\b'){ throw "$name must not require pwsh" }
+  if($bat -notmatch 'powershell\.exe' -or $bat -notmatch 'ExecutionPolicy Bypass'){ throw "$name must use Windows PowerShell with ExecutionPolicy Bypass" }
+}
+$startText=Get-Content -Raw (Join-Path $Root 'scripts\start-windows.ps1')
+if($startText.Contains('.ArgumentList')){ throw 'Windows startup must not depend on ProcessStartInfo.ArgumentList (missing in Windows PowerShell 5.1)' }
+if($startText -notmatch 'Start-Process'){ throw 'Windows startup must use a PowerShell 5.1-compatible process launch path' }
+$qndText=Get-Content -Raw (Join-Path $Root 'qnd.ps1')
+if($qndText -notmatch '\[switch\]\$ServerOnly' -or $qndText -notmatch 'IncludeServerOnly'){ throw 'GUI requires qnd.ps1 to forward -ServerOnly' }
 
 Write-Host 'Launcher.Tests.ps1: PASS'
