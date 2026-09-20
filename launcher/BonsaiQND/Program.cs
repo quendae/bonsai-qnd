@@ -157,7 +157,7 @@ internal sealed class MainForm : Form
 
     private async void StartClicked(object? sender, EventArgs e)
     {
-        if (_serverProcess is { HasExited: false }) return;
+        if (_serverProcess is not null) return;
         try
         {
             var mode = SelectedMode;
@@ -171,11 +171,22 @@ internal sealed class MainForm : Form
             if (setupExit != 0) throw new InvalidOperationException($"Setup zakończył się kodem {setupExit}.");
 
             _status.Text = "Uruchamianie serwera...";
-            _serverProcess = StartPowerShell("start", plan, serverOnly: true);
+            var serverProcess = StartPowerShell("start", plan, serverOnly: true);
+            _serverProcess = serverProcess;
             _intentionalStop = false;
-            _serverProcess.EnableRaisingEvents = true;
-            _serverProcess.Exited += (_, _) => BeginInvoke(() => ServerExited());
-            await WaitForApiAsync(_serverProcess);
+
+            // During startup WaitForApiAsync is the sole owner of exit detection. Registering
+            // Exited before readiness lets its callback race with the startup error path and
+            // dispose the same Process while it is still being inspected.
+            await WaitForApiAsync(serverProcess);
+
+            serverProcess.Exited += (_, _) =>
+            {
+                if (IsDisposed) return;
+                try { BeginInvoke(() => ServerExited(serverProcess)); } catch (InvalidOperationException) { }
+            };
+            serverProcess.EnableRaisingEvents = true;
+
             _status.Text = plan.Bind == "0.0.0.0" ? "Działa — API dostępne w LAN na porcie 8080" : "Działa — API tylko lokalnie na porcie 8080";
             _stop.Enabled = true;
             _start.Enabled = false;
@@ -191,7 +202,7 @@ internal sealed class MainForm : Form
         }
         finally
         {
-            if (_serverProcess is null || _serverProcess.HasExited) SetBusy(false);
+            if (_serverProcess is null) SetBusy(false);
         }
     }
 
@@ -264,7 +275,11 @@ internal sealed class MainForm : Form
     {
         var process = _serverProcess;
         if (process is null) { SetBusy(false); return; }
+
+        // Claim lifecycle ownership before touching or disposing Process. A queued Exited
+        // callback will see that this instance is no longer current and return immediately.
         _intentionalStop = true;
+        _serverProcess = null;
         try
         {
             if (!process.HasExited)
@@ -274,11 +289,11 @@ internal sealed class MainForm : Form
                 await process.WaitForExitAsync();
             }
         }
+        catch (InvalidOperationException) { }
         catch (Exception ex) { AppendLog($"[WARN] {ex.Message}"); }
         finally
         {
             process.Dispose();
-            _serverProcess = null;
             _status.Text = "Zatrzymany";
             _stop.Enabled = false;
             _start.Enabled = true;
@@ -286,14 +301,19 @@ internal sealed class MainForm : Form
         }
     }
 
-    private void ServerExited()
+    private void ServerExited(Process process)
     {
-        if (_serverProcess is null) return;
-        var code = _serverProcess.ExitCode;
-        if (!_intentionalStop) AppendLog($"[WARN] Proces serwera zakończył się kodem {code}.");
-        _status.Text = _intentionalStop ? "Zatrzymany" : "Serwer zakończył działanie";
-        _serverProcess.Dispose();
+        if (!ReferenceEquals(_serverProcess, process)) return;
+
+        // Clear the mutable field before reading/disposing the concrete process instance.
+        // This prevents Stop/Start cleanup from dereferencing a disposed Process.
         _serverProcess = null;
+        int? code = null;
+        try { code = process.ExitCode; } catch (InvalidOperationException) { }
+        if (!_intentionalStop)
+            AppendLog(code.HasValue ? $"[WARN] Proces serwera zakończył się kodem {code.Value}." : "[WARN] Proces serwera zakończył działanie.");
+        _status.Text = _intentionalStop ? "Zatrzymany" : "Serwer zakończył działanie";
+        process.Dispose();
         _stop.Enabled = false;
         _start.Enabled = true;
         _mode.Enabled = _context.Enabled = _lan.Enabled = true;
@@ -301,16 +321,30 @@ internal sealed class MainForm : Form
 
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
-        if (_serverProcess is not { HasExited: false }) return;
+        var process = _serverProcess;
+        if (process is null) return;
+        try
+        {
+            if (process.HasExited) return;
+        }
+        catch (InvalidOperationException) { return; }
+
         var answer = MessageBox.Show(this, "Serwer Bonsai QND nadal działa. Zatrzymać go i zamknąć program?", "Bonsai QND", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
         if (answer == DialogResult.No) { e.Cancel = true; return; }
-        try { _intentionalStop = true; _serverProcess.Kill(entireProcessTree: true); } catch { }
+        try
+        {
+            _intentionalStop = true;
+            _serverProcess = null;
+            process.Kill(entireProcessTree: true);
+        }
+        catch { }
+        finally { process.Dispose(); }
     }
 
     private void SetBusy(bool busy)
     {
         _start.Enabled = !busy;
-        if (_serverProcess is null || _serverProcess.HasExited)
+        if (_serverProcess is null)
         {
             _mode.Enabled = !busy;
             _context.Enabled = !busy;
