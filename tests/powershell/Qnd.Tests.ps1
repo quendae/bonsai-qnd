@@ -11,8 +11,30 @@ try {
   if(-not $out.Contains('-c 131072')) { throw 'qnd start must forward -Context to llama-server' }
   $out = & (Join-Path $Root 'qnd.ps1') start -Profile nvidia-rtx3060 -Bind 0.0.0.0 -ServerOnly | Out-String
   if(-not $out.Contains('--host 0.0.0.0')) { throw 'qnd start must forward -Bind to llama-server' }
-  $out = & (Join-Path $Root 'qnd.ps1') start -Profile windows-cpu -Context 8192 -ServerOnly | Out-String
-  foreach($needle in @('PROFILE windows-cpu','BACKEND cpu','CONTEXT 8192','-ngl 0')) { if(-not $out.Contains($needle)){ throw "Windows CPU start missing $needle" } }
+
+  $reasoningCases=@{
+    off='0'
+    low='512'
+    medium='2048'
+    high='8192'
+    max='-1'
+  }
+  foreach($level in $reasoningCases.Keys){
+    $budget=$reasoningCases[$level]
+    $out = & (Join-Path $Root 'qnd.ps1') start -Profile nvidia-rtx3060 -Reasoning $level -ServerOnly | Out-String
+    foreach($needle in @("REASONING $level","--reasoning-budget $budget")){
+      if(-not $out.Contains($needle)){ throw "qnd start reasoning=$level missing $needle`n$out" }
+    }
+  }
+  $out = & (Join-Path $Root 'qnd.ps1') start -Profile nvidia-rtx3060 -Reasoning off -ServerOnly | Out-String
+  if(-not $out.Contains('enable_thinking')){ throw 'reasoning Off must explicitly disable thinking in the chat template' }
+
+  $out = & (Join-Path $Root 'qnd.ps1') start -Profile windows-cpu -Context 8192 -Reasoning off -ServerOnly | Out-String
+  foreach($needle in @('PROFILE windows-cpu','BACKEND cpu','CONTEXT 8192','REASONING off','-ngl 0','--reasoning-budget 0')) { if(-not $out.Contains($needle)){ throw "Windows CPU start missing $needle" } }
+  $failed=$false
+  try { & (Join-Path $Root 'qnd.ps1') start -Profile windows-cpu -Reasoning medium -ServerOnly | Out-Null } catch { $failed=$true }
+  if(-not $failed){ throw 'Windows CPU profile must reject reasoning levels above Off' }
+
   $out = & (Join-Path $Root 'qnd.ps1') doctor -Profile nvidia-rtx3060 -Context 131072 | Out-String
   if(-not $out.Contains('CONTEXT 131072')) { throw 'qnd doctor must report overridden context' }
   $out = & (Join-Path $Root 'qnd.ps1') setup -Profile nvidia-rtx3060 -Context 131072 | Out-String
