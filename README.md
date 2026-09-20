@@ -29,6 +29,24 @@ See `upstream.lock.json`.
 
 QND does not silently follow an upstream branch.
 
+## Windows pre-release installer
+
+The first packaged Windows build is published as **`v0.1.0-pre.1`**. Download `BonsaiQND-Setup-v0.1.0-pre.1.exe` from the GitHub Releases page.
+
+The installer is intentionally small and installs QND per-user to:
+
+```text
+%LOCALAPPDATA%\BonsaiQND
+```
+
+It does **not** bundle multi-gigabyte model weights or generated runtime data. After installation, open **Bonsai QND PowerShell** from the Start menu and run the normal profile setup, for example:
+
+```powershell
+.\qnd.ps1 setup -Profile nvidia-rtx3060
+```
+
+The installer itself does not require administrator rights. GPU drivers, Git, Python 3.11+ and Node.js/npm are still host prerequisites for the relevant workflows.
+
 ## Profiles
 
 | Profile | Platform | Model | Backend | Context | Notes |
