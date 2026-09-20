@@ -1,144 +1,169 @@
+<div align="center">
+
 # Bonsai QND
 
-Hardware-aware local Bonsai runtime with a Windows GUI launcher and Linux CLI support.
+### Run Bonsai locally on NVIDIA, AMD or CPU — without building the runtime by hand.
 
-Primary targets:
+[![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D4?logo=windows)](https://github.com/quendae/bonsai-qnd/releases)
+[![Linux](https://img.shields.io/badge/Linux-Debian%20%2F%20LXC-FCC624?logo=linux&logoColor=000)](https://github.com/quendae/bonsai-qnd)
+[![NVIDIA](https://img.shields.io/badge/NVIDIA-CUDA-76B900?logo=nvidia&logoColor=fff)](https://github.com/quendae/bonsai-qnd)
+[![AMD](https://img.shields.io/badge/AMD-Vulkan-ED1C24?logo=amd&logoColor=fff)](https://github.com/quendae/bonsai-qnd)
+[![CI](https://github.com/quendae/bonsai-qnd/actions/workflows/test.yml/badge.svg)](https://github.com/quendae/bonsai-qnd/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/quendae/bonsai-qnd?include_prereleases&label=prerelease)](https://github.com/quendae/bonsai-qnd/releases)
 
-- **Windows + GeForce RTX 3060 12 GB** — Bonsai 2 27B, PQ2_0, CUDA 12.4.
-- **Windows + Radeon RX 6950 XT 16 GB** — Bonsai 2 27B, PTQ1_0, Vulkan.
-- **Windows CPU** — Bonsai 27B Q1_0 with the pinned PrismML CPU x64 backend.
-- **Debian/LXC CPU** — Bonsai 27B Q1_0 agent profile, plus a faster 8B profile.
+**Windows users:** download the current installer, launch **Bonsai QND**, choose hardware + context + LAN mode, and press **Start**.
 
-The model is served by PrismML's pinned `llama-server`. DeepSeek Harness connects through an OpenAI-compatible provider named `bonsai-local`.
+### [⬇ Download Windows installer](https://github.com/quendae/bonsai-qnd/releases)
 
-## Windows installer and launcher
+</div>
 
-Starting with `v0.1.0-pre.2`, Windows users should normally use **BonsaiQND.exe** instead of opening PowerShell manually.
+---
 
-The installer places the application in:
+## What is Bonsai QND?
 
-```text
-%LOCALAPPDATA%\BonsaiQND
-```
+Bonsai QND is a hardware-aware launcher and reproducible runtime for running **Bonsai / Bonsai 2** locally.
 
-The Start menu and optional desktop shortcut launch `BonsaiQND.exe` directly.
+The project pins the model/runtime stack instead of silently following upstream changes, chooses a known-good path for each supported device, downloads only the files required by that profile, and exposes the model through an **OpenAI-compatible API**.
 
-### Launcher controls
+On Windows, the normal workflow is a small native GUI — no manual PowerShell commands are required.
 
-The launcher lets you choose:
+### Why use it?
 
-- **NVIDIA RTX 3060**
-- **AMD RX 6950 XT**
-- **CPU (Windows)**
-- context size
-- local-only API or **LAN mode**
+- **One Windows installer** instead of manually assembling PrismML `llama.cpp`, model quantizations and runtime DLLs.
+- Dedicated paths for **RTX 3060**, **RX 6950 XT** and **CPU**.
+- Current **Bonsai 2 27B** on supported GPU profiles.
+- Runtime context selection up to **256K** for Bonsai 2 GPU profiles.
+- Optional **LAN server mode** for a second workstation.
+- Local **DeepSeek Harness** can use a model running on another machine.
+- Reproducible, pinned upstream revisions.
+- Windows launcher works with the built-in **Windows PowerShell 5.1**; PowerShell 7 is not required.
 
-Click **Uruchom / Start**. The launcher:
+---
 
-1. runs the QND setup for the selected profile;
-2. immediately skips expensive setup work when the required model/backend is already present;
-3. downloads the required model/backend on first use when needed;
-4. launches `llama-server` in the background;
-5. waits for `http://127.0.0.1:8080/v1/models` to become ready;
-6. shows setup/server output in the GUI log panel.
+## Quick start — Windows
 
-Click **Zatrzymaj / Stop** to terminate the managed server process tree.
+### 1. Install
 
-If you close the GUI while the server is running, the application asks before stopping it.
+Download the newest `BonsaiQND-Setup-*.exe` from:
 
-### PowerShell compatibility
+**https://github.com/quendae/bonsai-qnd/releases**
 
-The GUI uses the Windows-provided:
+The application is installed per-user and does not bundle multi-gigabyte models inside the installer.
 
-```text
-powershell.exe -NoProfile -ExecutionPolicy Bypass
-```
+### 2. Choose a mode
 
-This means:
+Open **Bonsai QND** and select:
 
-- PowerShell 7 / `pwsh` is **not required**;
-- QND does **not** change the machine's permanent execution policy;
-- manual `.ps1` execution can remain blocked by the user's normal PowerShell policy while the launcher still works.
+| Mode | Model path | Backend | Default context |
+|---|---|---|---:|
+| **NVIDIA RTX 3060 12 GB** | Bonsai 2 27B `PQ2_0` | CUDA 12.4 | 65,536 |
+| **AMD RX 6950 XT 16 GB** | Bonsai 2 27B `PTQ1_0` | Vulkan | 65,536 |
+| **CPU (Windows)** | Bonsai 27B `Q1_0` | CPU x64 | 8,192 |
 
-The old BAT helpers remain for compatibility and also use Windows PowerShell with `-ExecutionPolicy Bypass`.
-
-## Profiles
-
-| Profile | Platform | Model | Backend | Default context | Notes |
-|---|---|---|---|---:|---|
-| `nvidia-rtx3060` | Windows | Bonsai 2 27B PQ2_0 | CUDA 12.4 | 65536 | Primary RTX 3060 profile, KV4, `-ngl 99` |
-| `amd-rx6950xt` | Windows | Bonsai 2 27B PTQ1_0 | Vulkan | 65536 | Primary RX 6950 XT profile, KV4, `-ngl 99` |
-| `windows-cpu` | Windows | Bonsai 27B Q1_0 | CPU x64 | 8192 | Windows GUI CPU path, thinking disabled |
-| `amd-rx6950xt-hip` | Windows | Bonsai 2 27B PQ2_0 | HIP | 65536 | Experimental |
-| `amd-rx6950xt-legacy` | Windows | Ternary-Bonsai 27B Q2 group-64 | Vulkan | 16384 | Legacy fallback |
-| `cpu-agent` | Linux | Bonsai 27B Q1_0 | CPU | 8192 | Agent/tool profile |
-| `cpu-fast` | Linux | Bonsai 8B Q1_0 | CPU | 8192 | Faster chat/testing profile |
-| `amd-rocm-bonsai2` | Linux | Bonsai 2 27B PQ2_0 | ROCm | 16384 | Experimental |
-
-## Context sizing
-
-For Bonsai 2 GPU profiles, QND supports runtime context overrides up to **262144** tokens.
-
-The GUI exposes validated presets:
+For Bonsai 2 GPU modes the launcher currently offers:
 
 ```text
-65536
-131072
-196608
-262144
+65,536   131,072   196,608   262,144
 ```
 
-Larger context increases KV-cache memory use and prompt latency. The GPU profiles use Q4_0 K/V cache.
+Larger context means a larger KV cache and higher memory use.
 
-The current Windows CPU profile remains at its validated 8192-token context.
+### 3. Press Start
 
-CLI fallback example:
+The launcher automatically:
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 start -Profile nvidia-rtx3060 -Context 131072
+1. checks the selected profile;
+2. downloads the required model quantization if missing;
+3. downloads the pinned backend/runtime if missing;
+4. skips those downloads on later runs;
+5. starts `llama-server` in the background;
+6. waits until `/v1/models` responds;
+7. shows setup and server output in the GUI.
+
+When ready, the local endpoint is:
+
+```text
+http://127.0.0.1:8080/v1
 ```
+
+Use **Stop** to terminate the managed server process tree.
+
+---
+
+## Hardware support
+
+| Target | Status | Model | Backend | Notes |
+|---|---|---|---|---|
+| **Radeon RX 6950 XT 16 GB / Windows** | ✅ Hardware tested | Bonsai 2 27B `PTQ1_0` | Vulkan | Primary AMD path, full GPU offload, KV4 |
+| **GeForce RTX 3060 12 GB / Windows** | 🧪 Active hardware validation | Bonsai 2 27B `PQ2_0` | CUDA 12.4 | Primary NVIDIA path, full GPU offload, KV4 |
+| **Windows CPU** | 🧪 Available | Bonsai 27B `Q1_0` | CPU x64 | GUI CPU fallback |
+| **Debian / LXC CPU** | ✅ Supported CLI path | Bonsai 27B `Q1_0` | CPU | Agent/tool profile |
+| **Debian / LXC CPU (fast)** | ✅ Supported CLI path | Bonsai 8B `Q1_0` | CPU | Faster chat/testing profile |
+| **RX 6950 XT HIP** | ⚠ Experimental | Bonsai 2 27B `PQ2_0` | HIP | Not the safe Windows default for gfx1030 |
+| **Linux ROCm Bonsai 2** | ⚠ Experimental | Bonsai 2 27B `PQ2_0` | ROCm | Experimental profile |
+
+### Why NVIDIA and AMD use different quantizations
+
+Bonsai 2 relies on PrismML's `llama.cpp` fork.
+
+The RTX 3060 can use the optimized **PQ2_0 + CUDA** route. On the RX 6950 XT, the default Windows path is **PTQ1_0 + Vulkan**, because current Windows HIP support for gfx1030 is not treated as a safe default.
+
+The HIP/PQ2_0 route remains available only as an experimental profile.
+
+---
 
 ## LAN mode
 
-With LAN mode disabled, the API binds to:
-
-```text
-127.0.0.1:8080
-```
-
-With LAN mode enabled, the server binds to:
+Enable **LAN** in the Windows launcher to bind the model server to:
 
 ```text
 0.0.0.0:8080
 ```
 
-Clients must use the server's real LAN address, for example:
+`0.0.0.0` is a bind address — clients do **not** connect to it directly.
+
+From another machine, use the server's real LAN IP, for example:
 
 ```text
 http://192.168.1.50:8080/v1
 ```
 
-Do not use `0.0.0.0` as a client URL.
-
-QND does not automatically alter Windows Firewall. If required, allow inbound TCP port 8080 on the Windows **Private** network profile.
-
-## DeepSeek Harness: local tools, remote model
-
-A useful two-PC layout is:
+### Example topology
 
 ```text
-Workstation
-DeepSeek Harness 127.0.0.1:3080
-        |
-        | LAN
-        v
-192.168.1.50:8080/v1
-RTX 3060 + Bonsai 2
+┌──────────────────────────────┐
+│ Workstation                  │
+│                              │
+│ DeepSeek Harness             │
+│ http://127.0.0.1:3080        │
+└──────────────┬───────────────┘
+               │ OpenAI-compatible API
+               │ LAN
+               ▼
+┌──────────────────────────────┐
+│ Model server                 │
+│ RTX 3060 / RX 6950 XT        │
+│                              │
+│ http://192.168.1.50:8080/v1  │
+└──────────────────────────────┘
 ```
 
-On the RTX server, enable LAN mode in `BonsaiQND.exe`.
+> **Security:** LAN mode exposes the model API on all local interfaces. Keep port `8080` restricted to trusted machines/networks. QND does not automatically create a broad Windows Firewall rule.
 
-On the workstation, the CLI fallback for starting the local Harness against the remote model server is:
+---
+
+## DeepSeek Harness — local tools, remote model
+
+A useful setup is to keep **DeepSeek Harness and its tools on your workstation**, while inference runs on the GPU machine.
+
+On the model server:
+
+1. open `BonsaiQND.exe`;
+2. select the GPU profile;
+3. enable **LAN**;
+4. press **Start**.
+
+On the workstation, the current CLI fallback can configure local Harness against that remote API:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 harness `
@@ -147,27 +172,67 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 harness `
   -ApiBaseUrl http://192.168.1.50:8080/v1
 ```
 
-Harness itself stays bound to `127.0.0.1:3080`; only the model API is exposed to the LAN.
+Harness remains on:
 
-## Windows CLI fallback
-
-The GUI is the primary Windows entry point, but the scripts remain available for diagnostics and automation:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 profiles
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 setup -Profile nvidia-rtx3060
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 doctor -Profile nvidia-rtx3060 -Context 131072
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 start -Profile nvidia-rtx3060 -Context 131072 -Bind 0.0.0.0
+```text
+http://127.0.0.1:3080
 ```
 
-Compatibility BAT launchers:
+Only model requests cross the LAN.
 
-```bat
-start-nvidia-lan.bat -Context 131072
-start-cpu-lan.bat
+---
+
+## Context sizing
+
+GPU profiles keep **65,536** as their conservative default.
+
+Validated launcher values for Bonsai 2 are:
+
+| Context | Typical use |
+|---:|---|
+| `65,536` | Default / lower memory pressure |
+| `131,072` | Large coding and agent sessions |
+| `196,608` | Very large working context |
+| `262,144` | Maximum QND override for Bonsai 2 |
+
+Both primary GPU profiles use a Q4_0 K/V cache to reduce KV memory pressure.
+
+Context size is not free: increasing it raises memory usage and prompt-processing latency. A value being accepted by QND does not guarantee that every GPU/driver combination will have enough free VRAM for every workload.
+
+---
+
+## Windows PowerShell compatibility
+
+The GUI launches QND internally using Windows' built-in:
+
+```text
+powershell.exe -NoProfile -ExecutionPolicy Bypass
 ```
 
-## Debian/LXC CPU
+This is intentional:
+
+- `pwsh` / PowerShell 7 is **not required**;
+- QND does **not** modify your permanent Execution Policy;
+- manually running `.ps1` files may still be blocked by your own policy while the GUI continues to work normally.
+
+---
+
+## Profiles
+
+| Profile | Platform | Model | Backend | Context | State |
+|---|---|---|---|---:|---|
+| `nvidia-rtx3060` | Windows | Bonsai 2 27B `PQ2_0` | CUDA 12.4 | 65,536 | Primary |
+| `amd-rx6950xt` | Windows | Bonsai 2 27B `PTQ1_0` | Vulkan | 65,536 | Primary |
+| `windows-cpu` | Windows | Bonsai 27B `Q1_0` | CPU x64 | 8,192 | Primary CPU fallback |
+| `amd-rx6950xt-hip` | Windows | Bonsai 2 27B `PQ2_0` | HIP | 65,536 | Experimental |
+| `amd-rx6950xt-legacy` | Windows | Ternary-Bonsai 27B Q2 group-64 | Vulkan | 16,384 | Legacy baseline |
+| `cpu-agent` | Linux | Bonsai 27B `Q1_0` | CPU | 8,192 | Primary Linux CPU |
+| `cpu-fast` | Linux | Bonsai 8B `Q1_0` | CPU | 8,192 | Faster Linux CPU |
+| `amd-rocm-bonsai2` | Linux | Bonsai 2 27B `PQ2_0` | ROCm | 16,384 | Experimental |
+
+---
+
+## Linux / Debian LXC
 
 Linux remains CLI-first:
 
@@ -177,7 +242,7 @@ Linux remains CLI-first:
 ./qnd.sh start --profile cpu-agent
 ```
 
-For LAN API access:
+LAN mode:
 
 ```bash
 ./qnd.sh start --profile cpu-agent --bind 0.0.0.0
@@ -189,27 +254,71 @@ or:
 sh ./start-cpu-lan.sh
 ```
 
-## Pinned upstreams
+---
 
-See `upstream.lock.json`.
+## Windows CLI fallback
+
+The GUI is the primary Windows interface, but CLI commands remain useful for diagnostics and automation:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 profiles
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 setup -Profile nvidia-rtx3060
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 doctor -Profile nvidia-rtx3060 -Context 131072
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 start -Profile nvidia-rtx3060 -Context 131072 -Bind 0.0.0.0
+```
+
+Legacy convenience launchers remain available:
+
+```bat
+start-nvidia-lan.bat -Context 131072
+start-cpu-lan.bat
+```
+
+---
+
+## Troubleshooting
+
+### `running scripts is disabled on this system`
+
+Use `BonsaiQND.exe`. The GUI invokes its internal PowerShell commands with a process-local `-ExecutionPolicy Bypass`; it does not require you to loosen your system policy.
+
+### `'pwsh' is not recognized`
+
+Current releases do not require PowerShell 7 for the Windows launcher or compatibility BAT files. Install the newest prerelease.
+
+### API works locally but not from another PC
+
+Check all three:
+
+1. **LAN mode** is enabled (`0.0.0.0:8080` bind);
+2. the client uses the server's real IP, such as `192.168.1.50`, not `0.0.0.0`;
+3. Windows Firewall allows TCP `8080` on the trusted/private network.
+
+### First start takes much longer
+
+That is expected. The first launch downloads the selected model and pinned backend/runtime. Later starts reuse them.
+
+### Large context fails to start
+
+Try a smaller value. Context increases KV-cache memory requirements even though QND uses quantized Q4_0 K/V cache on the GPU profiles.
+
+---
+
+## Reproducibility and pinned upstreams
+
+Versions are recorded in [`upstream.lock.json`](upstream.lock.json).
 
 QND pins:
 
 - PrismML Bonsai demo source;
-- PrismML llama.cpp release;
+- PrismML `llama.cpp` release;
 - DeepSeek Harness reference/package.
 
-QND does not silently follow upstream branches.
+The project does not silently track upstream `main` branches for its runtime path.
 
-## Why the GPU profiles differ
+---
 
-Bonsai 2 requires PrismML's llama.cpp fork.
-
-On NVIDIA, the RTX 3060 profile uses the optimized **PQ2_0 + CUDA** path.
-
-On the RX 6950 XT, the default profile uses **PTQ1_0 + Vulkan** because current Windows HIP support for gfx1030 is not treated as a safe default. The HIP/PQ2_0 path remains experimental.
-
-## Tests
+## Development and tests
 
 Windows:
 
@@ -223,4 +332,32 @@ Linux:
 sh tests/run-static.sh
 ```
 
-CI also builds the WinForms launcher, publishes the self-contained `BonsaiQND.exe`, compiles the Inno Setup installer, and publishes numbered GitHub pre-releases from `main`.
+CI validates both platforms. The Windows release workflow additionally:
+
+1. builds the WinForms launcher;
+2. publishes a self-contained `BonsaiQND.exe`;
+3. compiles the Inno Setup installer;
+4. uploads the installer artifact;
+5. publishes numbered GitHub prereleases from `main`.
+
+---
+
+## Project status
+
+Bonsai QND is currently **pre-release software**. Hardware behavior can still vary with driver versions and available VRAM/RAM.
+
+Real-machine testing is especially useful. When reporting a problem, include:
+
+- selected QND mode/profile;
+- context size;
+- GPU + VRAM or CPU + RAM;
+- driver version when relevant;
+- the launcher log from startup through the failure.
+
+<div align="center">
+
+**Local Bonsai, reproducible runtime, hardware-specific paths.**
+
+[Releases](https://github.com/quendae/bonsai-qnd/releases) · [Issues](https://github.com/quendae/bonsai-qnd/issues) · [Actions](https://github.com/quendae/bonsai-qnd/actions)
+
+</div>
