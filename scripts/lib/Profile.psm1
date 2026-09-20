@@ -51,6 +51,42 @@ function Resolve-QndContext {
     return $value
 }
 
+function Resolve-QndReasoning {
+    param(
+        [Parameter(Mandatory)]$Profile,
+        [string]$Level
+    )
+
+    $supportsReasoning = $Profile.family -eq 'bonsai2' -and $Profile.reasoning -ne 'disabled'
+    if ([string]::IsNullOrWhiteSpace($Level)) {
+        if ($supportsReasoning) {
+            return [pscustomobject]@{ Level='model-default'; Budget=$null; DisableThinking=$false }
+        }
+        return [pscustomobject]@{ Level='off'; Budget=0; DisableThinking=$true }
+    }
+
+    $normalized = $Level.ToLowerInvariant()
+    if ($normalized -notin @('off','low','medium','high','max')) {
+        throw "Unknown reasoning level '$Level'. Use: off, low, medium, high, max."
+    }
+    if (-not $supportsReasoning -and $normalized -ne 'off') {
+        throw "Profile '$($Profile.id)' does not support configurable reasoning; use Off."
+    }
+
+    $budget = switch ($normalized) {
+        'off' { 0 }
+        'low' { 512 }
+        'medium' { 2048 }
+        'high' { 8192 }
+        'max' { -1 }
+    }
+    return [pscustomobject]@{
+        Level = $normalized
+        Budget = [int]$budget
+        DisableThinking = ($normalized -eq 'off')
+    }
+}
+
 function Select-QndProfile {
     param(
         [string[]]$GpuNames,
@@ -73,4 +109,4 @@ function Select-QndProfile {
     throw "Unsupported platform '$Platform'. Choose a profile explicitly."
 }
 
-Export-ModuleMember -Function Get-QndRoot,Get-QndProfilePath,Get-QndProfile,Test-QndProfile,Resolve-QndContext,Select-QndProfile
+Export-ModuleMember -Function Get-QndRoot,Get-QndProfilePath,Get-QndProfile,Test-QndProfile,Resolve-QndContext,Resolve-QndReasoning,Select-QndProfile

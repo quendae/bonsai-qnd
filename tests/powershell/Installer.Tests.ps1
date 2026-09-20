@@ -10,5 +10,7 @@ if($issText.Contains('.runtime')){ throw 'installer must not package generated r
 if($issText -match 'Name:\s*"\{group\}\\Bonsai QND PowerShell"'){ throw 'Start menu must launch the GUI EXE, not PowerShell' }
 if($issText -match '\[Run\][\s\S]*Filename:\s*"powershell\.exe"'){ throw 'post-install launch must use BonsaiQND.exe' }
 $wf=Get-Content -Raw $workflow
-foreach($needle in @('v0.1.0-pre.3','--prerelease','BonsaiQND-Setup-v0.1.0-pre.3.exe','dotnet publish','contents: write','fix/windows-ps51-start-pre3')){ if(-not $wf.Contains($needle)){ throw "prerelease workflow missing $needle" } }
+foreach($needle in @('v0.1.0-pre.4','--prerelease','BonsaiQND-Setup-v0.1.0-pre.4.exe','dotnet publish','contents: write','feat/reasoning-level-pre4')){ if(-not $wf.Contains($needle)){ throw "prerelease workflow missing $needle" } }
+$notesText=Get-Content -Raw $notes
+foreach($needle in @('v0.1.0-pre.4','Reasoning','Medium','2048')){ if(-not $notesText.Contains($needle)){ throw "pre.4 release notes missing $needle" } }
 Write-Host 'Installer.Tests.ps1: PASS'

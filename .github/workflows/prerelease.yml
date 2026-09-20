@@ -6,6 +6,7 @@ on:
       - main
       - feat/gui-launcher-working
       - fix/windows-ps51-start-pre3
+      - feat/reasoning-level-pre4
     paths:
       - 'launcher/**'
       - 'installer/**'
@@ -21,8 +22,8 @@ permissions:
   contents: write
 
 env:
-  VERSION: 0.1.0-pre.3
-  TAG: v0.1.0-pre.3
+  VERSION: 0.1.0-pre.4
+  TAG: v0.1.0-pre.4
 
 jobs:
   build-release:
@@ -53,14 +54,14 @@ jobs:
           if (-not (Test-Path $iscc)) { throw "Inno Setup compiler missing: $iscc" }
           & $iscc "/DAppVersion=$env:VERSION" installer\BonsaiQND.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
-          $installer = 'dist\BonsaiQND-Setup-v0.1.0-pre.3.exe'
+          $installer = 'dist\BonsaiQND-Setup-v0.1.0-pre.4.exe'
           if (-not (Test-Path $installer)) { throw "Expected installer missing: $installer" }
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BonsaiQND-Setup-v0.1.0-pre.3
-          path: dist/BonsaiQND-Setup-v0.1.0-pre.3.exe
+          name: BonsaiQND-Setup-v0.1.0-pre.4
+          path: dist/BonsaiQND-Setup-v0.1.0-pre.4.exe
 
       - name: Publish GitHub prerelease
         if: github.ref == 'refs/heads/main'
@@ -68,10 +69,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $asset = 'dist/BonsaiQND-Setup-v0.1.0-pre.3.exe'
+          $asset = 'dist/BonsaiQND-Setup-v0.1.0-pre.4.exe'
           gh release view $env:TAG *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $env:TAG $asset --clobber
           } else {
-            gh release create $env:TAG $asset --target $env:GITHUB_SHA --title 'Bonsai QND v0.1.0-pre.3' --notes-file installer/RELEASE_NOTES.md --prerelease
+            gh release create $env:TAG $asset --target $env:GITHUB_SHA --title 'Bonsai QND v0.1.0-pre.4' --notes-file installer/RELEASE_NOTES.md --prerelease
           }
