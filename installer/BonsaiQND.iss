@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.0-pre.1"
+  #define AppVersion "0.1.0-pre.2"
 #endif
 
 [Setup]
@@ -24,6 +24,7 @@ SetupLogging=yes
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Files]
+Source: "..\dist\launcher\BonsaiQND.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\qnd.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\upstream.lock.json"; DestDir: "{app}"; Flags: ignoreversion
@@ -35,9 +36,9 @@ Source: "..\harness\*"; DestDir: "{app}\harness"; Flags: ignoreversion recursesu
 Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Bonsai QND PowerShell"; Filename: "powershell.exe"; Parameters: "-NoExit -ExecutionPolicy Bypass -Command ""Set-Location -LiteralPath '{app}'; .\qnd.ps1 help"""; WorkingDir: "{app}"
+Name: "{group}\Bonsai QND"; Filename: "{app}\BonsaiQND.exe"; WorkingDir: "{app}"
 Name: "{group}\Bonsai QND README"; Filename: "notepad.exe"; Parameters: """{app}\README.md"""; WorkingDir: "{app}"
-Name: "{userdesktop}\Bonsai QND"; Filename: "powershell.exe"; Parameters: "-NoExit -ExecutionPolicy Bypass -Command ""Set-Location -LiteralPath '{app}'; .\qnd.ps1 help"""; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{userdesktop}\Bonsai QND"; Filename: "{app}\BonsaiQND.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "powershell.exe"; Parameters: "-NoExit -ExecutionPolicy Bypass -Command ""Set-Location -LiteralPath '{app}'; .\qnd.ps1 help"""; WorkingDir: "{app}"; Description: "Open Bonsai QND PowerShell"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\BonsaiQND.exe"; WorkingDir: "{app}"; Description: "Launch Bonsai QND"; Flags: postinstall nowait skipifsilent

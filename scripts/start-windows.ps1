@@ -29,9 +29,16 @@ if(-not (Test-Path $bin)){throw "Missing backend binary: $bin (run setup first)"
 Write-Host "[INFO] Profile: $($p.id)";Write-Host "[INFO] Model: $($model.FullName)";Write-Host "[INFO] Backend: $bin";Write-Host "[INFO] Context: $ctx";Write-Host "[INFO] API bind: ${Bind}:8080";if($p.PSObject.Properties.Name -contains 'kv4' -and $p.kv4){Write-Host '[INFO] KV cache: q4_0'}
 if($ctx -gt [int]$p.context){Write-Warning "Context override $ctx is above profile default $($p.context); VRAM use and prompt latency will increase."}
 if($Bind -eq '0.0.0.0'){Write-Warning 'llama-server API is exposed on all local interfaces. Restrict port 8080 to trusted LAN hosts in Windows Firewall; DeepSeek Harness remains loopback-only.'}
-$psi=[Diagnostics.ProcessStartInfo]::new();$psi.FileName=$bin;$psi.UseShellExecute=$false
-foreach($a in $args){$psi.ArgumentList.Add([string]$a)}
-$proc=[Diagnostics.Process]::new();$proc.StartInfo=$psi;if(-not $proc.Start()){throw 'Failed to start llama-server.'}
+
+# Windows PowerShell 5.1 runs on .NET Framework and does not expose
+# ProcessStartInfo.ArgumentList. Quote arguments for Start-Process instead,
+# so QND does not require PowerShell 7/pwsh on a clean Windows install.
+$startArgs=@($args | ForEach-Object {
+  $s=[string]$_
+  if($s -match '[\s"]'){ '"' + ($s -replace '"','\"') + '"' } else { $s }
+})
+$proc=Start-Process -FilePath $bin -ArgumentList $startArgs -PassThru -NoNewWindow
+if(-not $proc){throw 'Failed to start llama-server.'}
 try{
   $limit=if($env:QND_START_TIMEOUT){[int]$env:QND_START_TIMEOUT}else{180};$ready=$false
   for($i=0;$i -lt $limit;$i++){if($proc.HasExited){throw 'llama-server exited during startup.'};try{$null=Invoke-RestMethod 'http://127.0.0.1:8080/v1/models' -TimeoutSec 2;$ready=$true;break}catch{Start-Sleep 1}}
