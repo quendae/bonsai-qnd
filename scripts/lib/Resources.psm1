@@ -1,6 +1,10 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Test-QndWindowsPlatform {
+    return [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
+}
+
 function Get-QndEffectiveMemoryBytes {
     param([string]$CgroupPath, [string]$MemInfoPath)
     if ($CgroupPath -and (Test-Path $CgroupPath -PathType Leaf)) {
@@ -14,13 +18,13 @@ function Get-QndEffectiveMemoryBytes {
         $line = Get-Content $MemInfoPath | Where-Object { $_ -match '^MemTotal:\s+(\d+)\s+kB' } | Select-Object -First 1
         if ($line -match '^MemTotal:\s+(\d+)\s+kB') { return [UInt64]$Matches[1] * 1024 }
     }
-    if ($IsWindows) { return [UInt64](Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory }
+    if (Test-QndWindowsPlatform) { return [UInt64](Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory }
     if (Test-Path '/sys/fs/cgroup/memory.max') { return Get-QndEffectiveMemoryBytes -CgroupPath '/sys/fs/cgroup/memory.max' -MemInfoPath '/proc/meminfo' }
     return Get-QndEffectiveMemoryBytes -MemInfoPath '/proc/meminfo'
 }
 
 function Get-QndCpuCounts {
-    if ($IsWindows) {
+    if (Test-QndWindowsPlatform) {
         $cpus = @(Get-CimInstance Win32_Processor)
         return [pscustomobject]@{
             Physical = [int](($cpus | Measure-Object NumberOfCores -Sum).Sum)
