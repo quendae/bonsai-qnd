@@ -18,9 +18,9 @@ Assert-Plan 'nvidia' 131072 'medium' 'lan' @('PROFILE=nvidia-rtx3060','CONTEXT=1
 Assert-Plan 'amd' 65536 'high' 'local' @('PROFILE=amd-rx6950xt','CONTEXT=65536','REASONING=high','BIND=127.0.0.1')
 Assert-Plan 'cpu' 8192 'off' 'lan' @('PROFILE=windows-cpu','CONTEXT=8192','REASONING=off','BIND=0.0.0.0')
 
-$failed=$false
-try { & $exe.FullName --plan cpu 8192 medium local | Out-Null } catch { $failed=$true }
+& $exe.FullName --plan cpu 8192 medium local | Out-Null
 if($LASTEXITCODE -eq 0){ throw 'CPU launcher plan must reject reasoning levels above Off' }
+$global:LASTEXITCODE=0
 
 foreach($name in @('start-nvidia-lan.bat','start-cpu-lan.bat')){
   $bat=Get-Content -Raw (Join-Path $Root $name)
