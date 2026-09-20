@@ -9,7 +9,7 @@ if($p.platform -ne 'windows'){ throw "Profile '$($p.id)' is not a Windows profil
 $ctx = Resolve-QndContext -Profile $p -Override $Context
 $lock = Get-Content -Raw (Join-Path $Root 'upstream.lock.json') | ConvertFrom-Json
 $bonsaiDir = Join-Path $Root '.runtime\bonsai'
-$leanWindowsGpu = $p.id -in @('amd-rx6950xt','amd-rx6950xt-hip','amd-rx6950xt-legacy','nvidia-rtx3060')
+$leanWindowsProfile = $p.id -in @('amd-rx6950xt','amd-rx6950xt-hip','amd-rx6950xt-legacy','nvidia-rtx3060','windows-cpu')
 $modelRepo = $null
 $modelAllow = @()
 $needMmproj = $false
@@ -38,6 +38,11 @@ switch($p.id){
     $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-cuda-12.4-x64.zip"
     $backendRuntimeAsset = 'cudart-llama-bin-win-cuda-12.4-x64.zip'
   }
+  'windows-cpu' {
+    $modelRepo = 'prism-ml/Ternary-Bonsai-27B-gguf'
+    $modelAllow = @('*-Q1_0.gguf')
+    $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-cpu-x64.zip"
+  }
 }
 
 Write-Output "PROFILE=$($p.id)"
@@ -46,7 +51,7 @@ Write-Output "BONSAI_MODEL=$($p.model)"
 Write-Output "BONSAI_BACKEND=$($p.backend)"
 Write-Output "BONSAI_NGL=$($p.gpuLayers)"
 Write-Output "BONSAI_CTX=$ctx"
-if($leanWindowsGpu){
+if($leanWindowsProfile){
   Write-Output 'LEAN_SETUP=1'
   Write-Output "LEAN_MODEL_REPO=$modelRepo"
   Write-Output "LEAN_MODEL_ALLOW=$($modelAllow -join ';')"
@@ -56,8 +61,22 @@ if($leanWindowsGpu){
 if($ctx -gt [int]$p.context){ Write-Warning "Context override $ctx is above profile default $($p.context); setup files are unchanged, but runtime VRAM/RAM use will increase." }
 if($SkipDownload -or $env:QND_DRY_RUN -eq '1'){
   Write-Output "DRY_RUN checkout $($lock.bonsai.repository)@$($lock.bonsai.commit)"
-  if(-not $leanWindowsGpu){ Write-Output 'DRY_RUN upstream setup with BONSAI_OPENWEBUI=0 BONSAI_CODE_INTERPRETER=0' }
+  if(-not $leanWindowsProfile){ Write-Output 'DRY_RUN upstream setup with BONSAI_OPENWEBUI=0 BONSAI_CODE_INTERPRETER=0' }
   exit 0
+}
+
+$modelDir = switch($p.family){ 'bonsai2'{Join-Path $bonsaiDir "models\bonsai2-gguf\$($p.model)"}; 'ternary'{Join-Path $bonsaiDir "models\ternary-gguf\$($p.model)"}; default{Join-Path $bonsaiDir "models\gguf\$($p.model)"} }
+if($leanWindowsProfile){
+  $readyModel = Get-ChildItem $modelDir -Filter $p.ggufPattern -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -notmatch 'mmproj|dspark|kv-bias'} | Select-Object -First 1
+  $readyBin = Join-Path $bonsaiDir "bin\$($p.backend)\llama-server.exe"
+  $releaseStamp = Join-Path $bonsaiDir "bin\$($p.backend)\.llama_release"
+  $expectedStamp = if($backendRuntimeAsset){ "$($lock.bonsai.llamaRelease)|$backendAsset|$backendRuntimeAsset" } else { [string]$lock.bonsai.llamaRelease }
+  $actualStamp = if(Test-Path $releaseStamp){ (Get-Content -Raw $releaseStamp).Trim() } else { '' }
+  $readyMmproj = (-not $needMmproj) -or [bool](Get-ChildItem $modelDir -Filter '*mmproj*.gguf' -File -ErrorAction SilentlyContinue | Select-Object -First 1)
+  if($readyModel -and $readyMmproj -and (Test-Path $readyBin) -and $actualStamp -eq $expectedStamp){
+    Write-Host "[OK] Runtime already prepared: $($p.id)" -ForegroundColor Green
+    exit 0
+  }
 }
 
 if(-not (Get-Command git -ErrorAction SilentlyContinue)){ throw 'git is required.' }
@@ -109,7 +128,6 @@ function Ensure-QndDownloadPython {
   if(-not (Test-Path $venvPy)){
     New-QndDownloadVenv $venvDir
   }
-
   & $venvPy -m pip --version 2>$null | Out-Null
   if($LASTEXITCODE -ne 0){
     Write-Host '==> Download environment has no pip; repairing with ensurepip ...' -ForegroundColor Yellow
@@ -121,7 +139,6 @@ function Ensure-QndDownloadPython {
     & $venvPy -m pip --version 2>$null | Out-Null
     if($LASTEXITCODE -ne 0){ throw 'Download environment has no working pip even after repair/recreation.' }
   }
-
   Write-Host '==> Ensuring huggingface-hub ...' -ForegroundColor Cyan
   & $venvPy -m pip install --disable-pip-version-check -q 'huggingface-hub>=1.0' | Out-Host
   if($LASTEXITCODE -ne 0){ throw 'Failed to install huggingface-hub.' }
@@ -182,7 +199,6 @@ function Ensure-QndWindowsBackend([string]$Backend,[string]$Asset,[string]$Runti
     Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force $dest | Out-Null
     Copy-Item (Join-Path $server.Directory.FullName '*') $dest -Recurse -Force
-
     if($RuntimeAsset){
       $runtimeUrl="https://github.com/PrismML-Eng/llama.cpp/releases/download/$($lock.bonsai.llamaRelease)/$RuntimeAsset"
       $runtimeZip=Join-Path ([IO.Path]::GetTempPath()) ("qnd-runtime-"+[guid]::NewGuid()+'.zip')
@@ -193,7 +209,6 @@ function Ensure-QndWindowsBackend([string]$Backend,[string]$Asset,[string]$Runti
       Expand-Archive -Path $runtimeZip -DestinationPath $runtimeExtract -Force
       Copy-Item (Join-Path $runtimeExtract '*') $dest -Recurse -Force
     }
-
     Set-Content -LiteralPath $releaseStamp -NoNewline -Value $expectedStamp
   } finally {
     Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
@@ -203,8 +218,7 @@ function Ensure-QndWindowsBackend([string]$Backend,[string]$Asset,[string]$Runti
   }
 }
 
-if($leanWindowsGpu){
-  $modelDir = switch($p.family){ 'bonsai2'{Join-Path $bonsaiDir "models\bonsai2-gguf\$($p.model)"}; 'ternary'{Join-Path $bonsaiDir "models\ternary-gguf\$($p.model)"}; default{Join-Path $bonsaiDir "models\gguf\$($p.model)"} }
+if($leanWindowsProfile){
   $downloadPython = Ensure-QndDownloadPython
   Download-QndSelectedModel -PythonExe $downloadPython -RepoId $modelRepo -Destination $modelDir -AllowPatterns $modelAllow -NeedMmproj $needMmproj
   Ensure-QndWindowsBackend -Backend $p.backend -Asset $backendAsset -RuntimeAsset $backendRuntimeAsset
@@ -224,7 +238,6 @@ if($leanWindowsGpu){
   }
 }
 
-$modelDir = switch($p.family){ 'bonsai2'{Join-Path $bonsaiDir "models\bonsai2-gguf\$($p.model)"}; 'ternary'{Join-Path $bonsaiDir "models\ternary-gguf\$($p.model)"}; default{Join-Path $bonsaiDir "models\gguf\$($p.model)"} }
 $model = Get-ChildItem $modelDir -Filter $p.ggufPattern -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -notmatch 'mmproj|dspark|kv-bias'} | Select-Object -First 1
 if(-not $model){throw "Expected GGUF '$($p.ggufPattern)' not found in $modelDir."}
 $bin = Join-Path $bonsaiDir "bin\$($p.backend)\llama-server.exe"
