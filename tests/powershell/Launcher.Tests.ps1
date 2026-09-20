@@ -8,15 +8,19 @@ if($LASTEXITCODE -ne 0){ throw 'launcher build failed' }
 $exe=Get-ChildItem (Join-Path $Root 'launcher\BonsaiQND\bin\Release') -Recurse -Filter 'BonsaiQND.exe' -File | Where-Object { $_.FullName -notmatch '\\obj\\' } | Select-Object -First 1
 if(-not $exe){ throw 'launcher executable was not produced' }
 
-function Assert-Plan([string]$Mode,[int]$Context,[string]$Lan,[string[]]$Needles){
-  $out = (& $exe.FullName --plan $Mode $Context $Lan | Out-String)
-  if($LASTEXITCODE -ne 0){ throw "launcher plan failed for $Mode" }
-  foreach($needle in $Needles){ if(-not $out.Contains($needle)){ throw "launcher plan for $Mode missing $needle`n$out" } }
+function Assert-Plan([string]$Mode,[int]$Context,[string]$Reasoning,[string]$Lan,[string[]]$Needles){
+  $out = (& $exe.FullName --plan $Mode $Context $Reasoning $Lan | Out-String)
+  if($LASTEXITCODE -ne 0){ throw "launcher plan failed for $Mode/$Reasoning" }
+  foreach($needle in $Needles){ if(-not $out.Contains($needle)){ throw "launcher plan for $Mode/$Reasoning missing $needle`n$out" } }
 }
 
-Assert-Plan 'nvidia' 131072 'lan' @('PROFILE=nvidia-rtx3060','CONTEXT=131072','BIND=0.0.0.0')
-Assert-Plan 'amd' 65536 'local' @('PROFILE=amd-rx6950xt','CONTEXT=65536','BIND=127.0.0.1')
-Assert-Plan 'cpu' 8192 'lan' @('PROFILE=windows-cpu','CONTEXT=8192','BIND=0.0.0.0')
+Assert-Plan 'nvidia' 131072 'medium' 'lan' @('PROFILE=nvidia-rtx3060','CONTEXT=131072','REASONING=medium','BIND=0.0.0.0')
+Assert-Plan 'amd' 65536 'high' 'local' @('PROFILE=amd-rx6950xt','CONTEXT=65536','REASONING=high','BIND=127.0.0.1')
+Assert-Plan 'cpu' 8192 'off' 'lan' @('PROFILE=windows-cpu','CONTEXT=8192','REASONING=off','BIND=0.0.0.0')
+
+$failed=$false
+try { & $exe.FullName --plan cpu 8192 medium local | Out-Null } catch { $failed=$true }
+if($LASTEXITCODE -eq 0){ throw 'CPU launcher plan must reject reasoning levels above Off' }
 
 foreach($name in @('start-nvidia-lan.bat','start-cpu-lan.bat')){
   $bat=Get-Content -Raw (Join-Path $Root $name)
@@ -28,11 +32,16 @@ if($startText -match '(?m)^\s*\$\w+\.ArgumentList(?:\.|\s*=)'){ throw 'Windows s
 if($startText -notmatch 'Start-Process'){ throw 'Windows startup must use a PowerShell 5.1-compatible process launch path' }
 $qndText=Get-Content -Raw (Join-Path $Root 'qnd.ps1')
 if($qndText -notmatch '\[switch\]\$ServerOnly' -or $qndText -notmatch 'IncludeServerOnly'){ throw 'GUI requires qnd.ps1 to forward -ServerOnly' }
+if($qndText -notmatch '\$Reasoning' -or $qndText -notmatch 'IncludeReasoning'){ throw 'GUI requires qnd.ps1 to forward -Reasoning to start' }
+
+$programText=Get-Content -Raw (Join-Path $Root 'launcher\BonsaiQND\Program.cs')
+foreach($needle in @('Reasoning','Off','Low','Medium','High','Max','psi.ArgumentList.Add("-Reasoning")')){
+  if(-not $programText.Contains($needle)){ throw "launcher GUI/command wiring missing $needle" }
+}
 
 # Regression: when a short-lived server exits during startup, the Exited callback and
 # StartClicked catch path can race. Ownership must be cleared before Process.Dispose(),
 # otherwise a queued callback can read ExitCode/HasExited from an already disposed Process.
-$programText=Get-Content -Raw (Join-Path $Root 'launcher\BonsaiQND\Program.cs')
 if($programText -notmatch 'ServerExited\(Process process\)'){ throw 'Exited callback must receive the concrete Process instance it belongs to' }
 $stopMatch=[regex]::Match($programText,'(?s)private async Task StopServerAsync\(\).*?\n    \}')
 if(-not $stopMatch.Success){ throw 'could not inspect StopServerAsync' }
