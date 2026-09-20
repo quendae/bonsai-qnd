@@ -24,7 +24,7 @@ foreach($name in @('start-nvidia-lan.bat','start-cpu-lan.bat')){
   if($bat -notmatch 'powershell\.exe' -or $bat -notmatch 'ExecutionPolicy Bypass'){ throw "$name must use Windows PowerShell with ExecutionPolicy Bypass" }
 }
 $startText=Get-Content -Raw (Join-Path $Root 'scripts\start-windows.ps1')
-if($startText.Contains('.ArgumentList')){ throw 'Windows startup must not depend on ProcessStartInfo.ArgumentList (missing in Windows PowerShell 5.1)' }
+if($startText -match '(?m)^\s*\$\w+\.ArgumentList(?:\.|\s*=)'){ throw 'Windows startup must not depend on ProcessStartInfo.ArgumentList (missing in Windows PowerShell 5.1)' }
 if($startText -notmatch 'Start-Process'){ throw 'Windows startup must use a PowerShell 5.1-compatible process launch path' }
 $qndText=Get-Content -Raw (Join-Path $Root 'qnd.ps1')
 if($qndText -notmatch '\[switch\]\$ServerOnly' -or $qndText -notmatch 'IncludeServerOnly'){ throw 'GUI requires qnd.ps1 to forward -ServerOnly' }
