@@ -35,6 +35,22 @@ function Get-QndProfile {
     return $profile
 }
 
+function Resolve-QndContext {
+    param(
+        [Parameter(Mandatory)]$Profile,
+        [Nullable[int]]$Override
+    )
+    if ($null -eq $Override) { return [int]$Profile.context }
+    $value = [int]$Override
+    if ($value -lt 1024) { throw 'Context must be at least 1024 tokens.' }
+    $max = if ($Profile.family -eq 'bonsai2') { 262144 } else { [int]$Profile.context }
+    if ($value -gt $max) {
+        if ($Profile.family -eq 'bonsai2') { throw "Bonsai 2 context cannot exceed 262144 tokens (requested $value)." }
+        throw "Profile '$($Profile.id)' has not been validated above $max context tokens (requested $value)."
+    }
+    return $value
+}
+
 function Select-QndProfile {
     param(
         [string[]]$GpuNames,
@@ -49,10 +65,12 @@ function Select-QndProfile {
         if (-not $GpuNames) {
             $GpuNames = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | ForEach-Object Name)
         }
-        if (($GpuNames -join ' ') -match '(?i)(RX\s*6950\s*XT|Radeon.*6950.*XT)') { return Get-QndProfile 'amd-rx6950xt' }
+        $gpuText = $GpuNames -join ' '
+        if ($gpuText -match '(?i)(RX\s*6950\s*XT|Radeon.*6950.*XT)') { return Get-QndProfile 'amd-rx6950xt' }
+        if ($gpuText -match '(?i)(GeForce\s+)?RTX\s*3060') { return Get-QndProfile 'nvidia-rtx3060' }
         throw "No safe automatic profile for Windows GPU(s): $($GpuNames -join ', ')"
     }
     throw "Unsupported platform '$Platform'. Choose a profile explicitly."
 }
 
-Export-ModuleMember -Function Get-QndRoot,Get-QndProfilePath,Get-QndProfile,Test-QndProfile,Select-QndProfile
+Export-ModuleMember -Function Get-QndRoot,Get-QndProfilePath,Get-QndProfile,Test-QndProfile,Resolve-QndContext,Select-QndProfile

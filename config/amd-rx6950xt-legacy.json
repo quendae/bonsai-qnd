@@ -1,16 +1,16 @@
 {
-  "id": "amd-rx6950xt",
+  "id": "amd-rx6950xt-legacy",
   "platform": "windows",
-  "family": "bonsai2",
+  "family": "ternary",
   "model": "27B",
   "backend": "vulkan",
-  "ggufPattern": "*-PTQ1_0.gguf",
-  "context": 65536,
+  "ggufPattern": "*Q2_g64.gguf",
+  "context": 16384,
   "gpuLayers": 99,
   "parallel": 1,
   "harnessModelId": "bonsai-qnd",
   "experimental": false,
   "reasoning": "model-default",
-  "kv4": true,
-  "vision": false
+  "kv4": false,
+  "vision": true
 }

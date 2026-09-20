@@ -1,12 +1,13 @@
 [CmdletBinding()]
-param([string]$Profile)
+param([string]$Profile,[Nullable[int]]$Context)
 $ErrorActionPreference='Stop'
 $Root=if($env:QND_ROOT){(Resolve-Path $env:QND_ROOT).Path}else{(Resolve-Path (Join-Path $PSScriptRoot '..')).Path};$env:QND_ROOT=$Root
 Import-Module (Join-Path $Root 'scripts\lib\Profile.psm1') -Force
 Import-Module (Join-Path $Root 'scripts\lib\Resources.psm1') -Force
 $p=if($Profile){Get-QndProfile $Profile}else{Select-QndProfile -Platform windows}
+$ctx=Resolve-QndContext -Profile $p -Override $Context
 $cpu=Get-QndCpuCounts
-Write-Output "PROFILE $($p.id)";Write-Output "BACKEND $($p.backend)";Write-Output "FAMILY $($p.family) $($p.model)";Write-Output "CONTEXT $($p.context)";Write-Output "RAM_BYTES $(Get-QndEffectiveMemoryBytes)";Write-Output "CPUS $($cpu.Logical) logical / $($cpu.Physical) physical"
+Write-Output "PROFILE $($p.id)";Write-Output "BACKEND $($p.backend)";Write-Output "FAMILY $($p.family) $($p.model)";Write-Output "CONTEXT $ctx";Write-Output "RAM_BYTES $(Get-QndEffectiveMemoryBytes)";Write-Output "CPUS $($cpu.Logical) logical / $($cpu.Physical) physical"
 if($env:QND_DRY_RUN -eq '1'){Write-Output "MODEL_PATTERN $($p.ggufPattern)";exit 0}
 $fails=0
 function Pass([string]$m){Write-Host "[PASS] $m" -ForegroundColor Green};function Warn([string]$m){Write-Host "[WARN] $m" -ForegroundColor Yellow};function Fail([string]$m){Write-Host "[FAIL] $m" -ForegroundColor Red;$script:fails++}
@@ -17,6 +18,7 @@ $modelDir=switch($p.family){'bonsai2'{Join-Path $bonsaiDir "models\bonsai2-gguf\
 $model=Get-ChildItem $modelDir -Filter $p.ggufPattern -File -ErrorAction SilentlyContinue|Where-Object{$_.Name -notmatch 'mmproj|dspark|kv-bias'}|Select-Object -First 1
 $bin=Join-Path $bonsaiDir "bin\$($p.backend)\llama-server.exe";if(Test-Path $bin){Pass "backend binary $bin"}else{Fail "backend binary missing: $bin"};if($model){Pass "model $($model.Name)"}else{Fail "model $($p.ggufPattern) missing"}
 if($p.family -eq 'bonsai2' -and $p.backend -eq 'vulkan' -and $p.ggufPattern -like '*PQ2_0*'){Fail 'forbidden Bonsai 2 PQ2_0 + Vulkan combination'}else{Pass 'model/backend compatibility'}
+if($ctx -gt [int]$p.context){Warn "context override $ctx is above profile default $($p.context); VRAM/RAM use and prompt latency will increase"}
 try{$null=Invoke-RestMethod 'http://127.0.0.1:8080/v1/models' -TimeoutSec 2;Pass 'llama-server API reachable';$live=$true}catch{Warn 'llama-server not running; API/chat/tool tests skipped';$live=$false}
 if($live){
   $chat=@{model='bonsai-qnd';messages=@(@{role='user';content='Reply with exactly OK.'});max_tokens=256;temperature=0}|ConvertTo-Json -Depth 8

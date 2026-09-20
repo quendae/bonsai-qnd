@@ -1,10 +1,10 @@
 {
-  "id": "amd-rx6950xt",
+  "id": "nvidia-rtx3060",
   "platform": "windows",
   "family": "bonsai2",
   "model": "27B",
-  "backend": "vulkan",
-  "ggufPattern": "*-PTQ1_0.gguf",
+  "backend": "cuda",
+  "ggufPattern": "*-PQ2_0.gguf",
   "context": 65536,
   "gpuLayers": 99,
   "parallel": 1,

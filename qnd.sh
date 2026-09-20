@@ -21,7 +21,7 @@ PY
 Bonsai QND
   ./qnd.sh setup  [--profile cpu-agent|cpu-fast|amd-rocm-bonsai2]
   ./qnd.sh doctor [--profile ...]
-  ./qnd.sh start  [--profile ...]
+  ./qnd.sh start  [--profile ...] [--bind 127.0.0.1|0.0.0.0]
   ./qnd.sh profiles
 TXT
     ;;

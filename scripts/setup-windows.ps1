@@ -1,33 +1,62 @@
 [CmdletBinding()]
-param([string]$Profile, [switch]$SkipDownload)
+param([string]$Profile, [Nullable[int]]$Context, [switch]$SkipDownload)
 $ErrorActionPreference='Stop'
 $Root = if($env:QND_ROOT){(Resolve-Path $env:QND_ROOT).Path}else{(Resolve-Path (Join-Path $PSScriptRoot '..')).Path}
 $env:QND_ROOT=$Root
 Import-Module (Join-Path $Root 'scripts\lib\Profile.psm1') -Force
 $p = if($Profile){Get-QndProfile $Profile}else{Select-QndProfile -Platform windows}
 if($p.platform -ne 'windows'){ throw "Profile '$($p.id)' is not a Windows profile." }
+$ctx = Resolve-QndContext -Profile $p -Override $Context
 $lock = Get-Content -Raw (Join-Path $Root 'upstream.lock.json') | ConvertFrom-Json
 $bonsaiDir = Join-Path $Root '.runtime\bonsai'
-$leanRx6950 = $p.id -eq 'amd-rx6950xt'
-$modelRepo = if($leanRx6950){ 'prism-ml/Ternary-Bonsai-27B-gguf' } else { $null }
-$modelAllow = if($leanRx6950){ @('*Q2_g64.gguf','*mmproj*.gguf') } else { @() }
-$backendAsset = if($leanRx6950){ "llama-$($lock.bonsai.llamaRelease)-bin-win-vulkan-x64.zip" } else { $null }
+$leanWindowsGpu = $p.id -in @('amd-rx6950xt','amd-rx6950xt-hip','amd-rx6950xt-legacy','nvidia-rtx3060')
+$modelRepo = $null
+$modelAllow = @()
+$needMmproj = $false
+$backendAsset = $null
+$backendRuntimeAsset = $null
+switch($p.id){
+  'amd-rx6950xt' {
+    $modelRepo = 'prism-ml/Ternary-Bonsai-2-27B-gguf'
+    $modelAllow = @('*-PTQ1_0.gguf')
+    $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-vulkan-x64.zip"
+  }
+  'amd-rx6950xt-hip' {
+    $modelRepo = 'prism-ml/Ternary-Bonsai-2-27B-gguf'
+    $modelAllow = @('*-PQ2_0.gguf')
+    $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-hip-radeon-x64.zip"
+  }
+  'amd-rx6950xt-legacy' {
+    $modelRepo = 'prism-ml/Ternary-Bonsai-27B-gguf'
+    $modelAllow = @('*Q2_g64.gguf','*mmproj*.gguf')
+    $needMmproj = $true
+    $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-vulkan-x64.zip"
+  }
+  'nvidia-rtx3060' {
+    $modelRepo = 'prism-ml/Ternary-Bonsai-2-27B-gguf'
+    $modelAllow = @('*-PQ2_0.gguf')
+    $backendAsset = "llama-$($lock.bonsai.llamaRelease)-bin-win-cuda-12.4-x64.zip"
+    $backendRuntimeAsset = 'cudart-llama-bin-win-cuda-12.4-x64.zip'
+  }
+}
 
 Write-Output "PROFILE=$($p.id)"
 Write-Output "BONSAI_FAMILY=$($p.family)"
 Write-Output "BONSAI_MODEL=$($p.model)"
 Write-Output "BONSAI_BACKEND=$($p.backend)"
 Write-Output "BONSAI_NGL=$($p.gpuLayers)"
-Write-Output "BONSAI_CTX=$($p.context)"
-if($leanRx6950){
+Write-Output "BONSAI_CTX=$ctx"
+if($leanWindowsGpu){
   Write-Output 'LEAN_SETUP=1'
   Write-Output "LEAN_MODEL_REPO=$modelRepo"
   Write-Output "LEAN_MODEL_ALLOW=$($modelAllow -join ';')"
   Write-Output "LEAN_BACKEND_ASSET=$backendAsset"
+  if($backendRuntimeAsset){ Write-Output "LEAN_BACKEND_RUNTIME_ASSET=$backendRuntimeAsset" }
 }
+if($ctx -gt [int]$p.context){ Write-Warning "Context override $ctx is above profile default $($p.context); setup files are unchanged, but runtime VRAM/RAM use will increase." }
 if($SkipDownload -or $env:QND_DRY_RUN -eq '1'){
   Write-Output "DRY_RUN checkout $($lock.bonsai.repository)@$($lock.bonsai.commit)"
-  if(-not $leanRx6950){ Write-Output 'DRY_RUN upstream setup with BONSAI_FORCE_G64=1 BONSAI_OPENWEBUI=0 BONSAI_CODE_INTERPRETER=0' }
+  if(-not $leanWindowsGpu){ Write-Output 'DRY_RUN upstream setup with BONSAI_OPENWEBUI=0 BONSAI_CODE_INTERPRETER=0' }
   exit 0
 }
 
@@ -66,26 +95,45 @@ function Get-QndPython {
   throw 'Python 3.11+ is required.'
 }
 
+function New-QndDownloadVenv([string]$VenvDir){
+  $python = Get-QndPython
+  if(Test-Path $VenvDir){ Remove-Item -LiteralPath $VenvDir -Recurse -Force }
+  Write-Host "==> Creating lightweight download environment ..." -ForegroundColor Cyan
+  & $python -m venv $VenvDir | Out-Host
+  if($LASTEXITCODE -ne 0){ throw 'Failed to create Python venv.' }
+}
+
 function Ensure-QndDownloadPython {
   $venvDir = Join-Path $bonsaiDir '.venv'
   $venvPy = Join-Path $venvDir 'Scripts\python.exe'
   if(-not (Test-Path $venvPy)){
-    $python = Get-QndPython
-    Write-Host "==> Creating lightweight download environment ..." -ForegroundColor Cyan
-    & $python -m venv $venvDir
-    if($LASTEXITCODE -ne 0){ throw 'Failed to create Python venv.' }
+    New-QndDownloadVenv $venvDir
   }
+
+  & $venvPy -m pip --version 2>$null | Out-Null
+  if($LASTEXITCODE -ne 0){
+    Write-Host '==> Download environment has no pip; repairing with ensurepip ...' -ForegroundColor Yellow
+    & $venvPy -m ensurepip --upgrade | Out-Host
+    if($LASTEXITCODE -ne 0){
+      Write-Warning 'ensurepip failed in the existing download environment; recreating it from the system Python.'
+      New-QndDownloadVenv $venvDir
+    }
+    & $venvPy -m pip --version 2>$null | Out-Null
+    if($LASTEXITCODE -ne 0){ throw 'Download environment has no working pip even after repair/recreation.' }
+  }
+
   Write-Host '==> Ensuring huggingface-hub ...' -ForegroundColor Cyan
-  & $venvPy -m pip install --disable-pip-version-check -q 'huggingface-hub>=1.0'
+  & $venvPy -m pip install --disable-pip-version-check -q 'huggingface-hub>=1.0' | Out-Host
   if($LASTEXITCODE -ne 0){ throw 'Failed to install huggingface-hub.' }
   return $venvPy
 }
 
-function Download-QndSelectedModel([string]$PythonExe, [string]$RepoId, [string]$Destination, [string[]]$AllowPatterns){
+function Download-QndSelectedModel([string]$PythonExe, [string]$RepoId, [string]$Destination, [string[]]$AllowPatterns, [bool]$NeedMmproj){
   $quant = Get-ChildItem $Destination -Filter $p.ggufPattern -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -notmatch 'mmproj|dspark|kv-bias'} | Select-Object -First 1
-  $mmproj = Get-ChildItem $Destination -Filter '*mmproj*.gguf' -File -ErrorAction SilentlyContinue | Select-Object -First 1
-  if($quant -and $mmproj){
-    Write-Host "[OK] Selected model files already present: $($quant.Name), $($mmproj.Name)" -ForegroundColor Green
+  $mmproj = if($NeedMmproj){ Get-ChildItem $Destination -Filter '*mmproj*.gguf' -File -ErrorAction SilentlyContinue | Select-Object -First 1 } else { $null }
+  if($quant -and (-not $NeedMmproj -or $mmproj)){
+    $extra = if($mmproj){", $($mmproj.Name)"}else{''}
+    Write-Host "[OK] Selected model files already present: $($quant.Name)$extra" -ForegroundColor Green
     return
   }
   New-Item -ItemType Directory -Force $Destination | Out-Null
@@ -99,7 +147,7 @@ local_dir = sys.argv[2]
 patterns = sys.argv[3:]
 snapshot_download(repo_id=repo_id, local_dir=local_dir, allow_patterns=patterns, token=os.environ.get("HF_TOKEN"))
 '@ | Set-Content -LiteralPath $script -Encoding UTF8
-    Write-Host "==> Downloading only required RX 6950 XT model files ..." -ForegroundColor Cyan
+    Write-Host "==> Downloading only required model files ..." -ForegroundColor Cyan
     Write-Host "    repo:  $RepoId"
     Write-Host "    allow: $($AllowPatterns -join ', ')"
     & $PythonExe $script $RepoId $Destination @AllowPatterns
@@ -109,46 +157,65 @@ snapshot_download(repo_id=repo_id, local_dir=local_dir, allow_patterns=patterns,
   }
 }
 
-function Ensure-QndVulkanBackend([string]$Asset){
-  $dest = Join-Path $bonsaiDir 'bin\vulkan'
+function Ensure-QndWindowsBackend([string]$Backend,[string]$Asset,[string]$RuntimeAsset){
+  $dest = Join-Path $bonsaiDir "bin\$Backend"
   $bin = Join-Path $dest 'llama-server.exe'
   $releaseStamp = Join-Path $dest '.llama_release'
+  $expectedStamp = if($RuntimeAsset){ "$($lock.bonsai.llamaRelease)|$Asset|$RuntimeAsset" } else { [string]$lock.bonsai.llamaRelease }
   $installed = if(Test-Path $releaseStamp){ (Get-Content -Raw $releaseStamp).Trim() } else { '' }
-  if((Test-Path $bin) -and $installed -eq $lock.bonsai.llamaRelease){
-    Write-Host "[OK] Pinned Vulkan backend already present: $Asset" -ForegroundColor Green
+  if((Test-Path $bin) -and $installed -eq $expectedStamp){
+    Write-Host "[OK] Pinned $Backend backend already present: $Asset" -ForegroundColor Green
     return
   }
   $url="https://github.com/PrismML-Eng/llama.cpp/releases/download/$($lock.bonsai.llamaRelease)/$Asset"
   $zip=Join-Path ([IO.Path]::GetTempPath()) ("qnd-"+[guid]::NewGuid()+'.zip')
   $extract="$zip.dir"
+  $runtimeZip=$null
+  $runtimeExtract=$null
   try{
-    Write-Host "==> Downloading pinned Vulkan backend only ..." -ForegroundColor Cyan
+    Write-Host "==> Downloading pinned $Backend backend only ..." -ForegroundColor Cyan
     Write-Host "    $Asset"
     Invoke-WebRequest -Uri $url -OutFile $zip
     Expand-Archive -Path $zip -DestinationPath $extract -Force
     $server=Get-ChildItem $extract -Recurse -Filter 'llama-server.exe' -File | Select-Object -First 1
-    if(-not $server){throw 'Downloaded Vulkan archive did not contain llama-server.exe'}
+    if(-not $server){throw "Downloaded $Backend archive did not contain llama-server.exe"}
     Remove-Item $dest -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force $dest | Out-Null
     Copy-Item (Join-Path $server.Directory.FullName '*') $dest -Recurse -Force
-    Set-Content -LiteralPath $releaseStamp -NoNewline -Value $lock.bonsai.llamaRelease
+
+    if($RuntimeAsset){
+      $runtimeUrl="https://github.com/PrismML-Eng/llama.cpp/releases/download/$($lock.bonsai.llamaRelease)/$RuntimeAsset"
+      $runtimeZip=Join-Path ([IO.Path]::GetTempPath()) ("qnd-runtime-"+[guid]::NewGuid()+'.zip')
+      $runtimeExtract="$runtimeZip.dir"
+      Write-Host "==> Downloading pinned $Backend runtime DLLs ..." -ForegroundColor Cyan
+      Write-Host "    $RuntimeAsset"
+      Invoke-WebRequest -Uri $runtimeUrl -OutFile $runtimeZip
+      Expand-Archive -Path $runtimeZip -DestinationPath $runtimeExtract -Force
+      Copy-Item (Join-Path $runtimeExtract '*') $dest -Recurse -Force
+    }
+
+    Set-Content -LiteralPath $releaseStamp -NoNewline -Value $expectedStamp
   } finally {
     Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $extract -Recurse -Force -ErrorAction SilentlyContinue
+    if($runtimeZip){ Remove-Item -LiteralPath $runtimeZip -Force -ErrorAction SilentlyContinue }
+    if($runtimeExtract){ Remove-Item -LiteralPath $runtimeExtract -Recurse -Force -ErrorAction SilentlyContinue }
   }
 }
 
-if($leanRx6950){
-  $modelDir = Join-Path $bonsaiDir 'models\ternary-gguf\27B'
+if($leanWindowsGpu){
+  $modelDir = switch($p.family){ 'bonsai2'{Join-Path $bonsaiDir "models\bonsai2-gguf\$($p.model)"}; 'ternary'{Join-Path $bonsaiDir "models\ternary-gguf\$($p.model)"}; default{Join-Path $bonsaiDir "models\gguf\$($p.model)"} }
   $downloadPython = Ensure-QndDownloadPython
-  Download-QndSelectedModel -PythonExe $downloadPython -RepoId $modelRepo -Destination $modelDir -AllowPatterns $modelAllow
-  Ensure-QndVulkanBackend -Asset $backendAsset
+  Download-QndSelectedModel -PythonExe $downloadPython -RepoId $modelRepo -Destination $modelDir -AllowPatterns $modelAllow -NeedMmproj $needMmproj
+  Ensure-QndWindowsBackend -Backend $p.backend -Asset $backendAsset -RuntimeAsset $backendRuntimeAsset
+  if($p.id -eq 'amd-rx6950xt-hip'){
+    Write-Warning 'Experimental only: current AMD HIP SDK 7.2 does not officially support RX 6950 XT/gfx1030 on Windows. Use this profile only to test an older compatible HIP runtime.'
+  }
 } else {
-  $names=@('BONSAI_FAMILY','BONSAI_MODEL','BONSAI_NGL','BONSAI_CTX','BONSAI_FORCE_G64','BONSAI_OPENWEBUI','BONSAI_CODE_INTERPRETER')
+  $names=@('BONSAI_FAMILY','BONSAI_MODEL','BONSAI_NGL','BONSAI_CTX','BONSAI_OPENWEBUI','BONSAI_CODE_INTERPRETER')
   $old=@{}; foreach($n in $names){$old[$n]=[Environment]::GetEnvironmentVariable($n,'Process')}
   try{
-    $env:BONSAI_FAMILY=$p.family; $env:BONSAI_MODEL=$p.model; $env:BONSAI_NGL=[string]$p.gpuLayers; $env:BONSAI_CTX=[string]$p.context
-    $env:BONSAI_FORCE_G64 = if($p.backend -eq 'vulkan'){'1'}else{'0'}
+    $env:BONSAI_FAMILY=$p.family; $env:BONSAI_MODEL=$p.model; $env:BONSAI_NGL=[string]$p.gpuLayers; $env:BONSAI_CTX=[string]$ctx
     $env:BONSAI_OPENWEBUI='0'; $env:BONSAI_CODE_INTERPRETER='0'
     & (Join-Path $bonsaiDir 'setup.ps1')
     if($LASTEXITCODE -and $LASTEXITCODE -ne 0){throw "upstream setup failed: $LASTEXITCODE"}
@@ -159,7 +226,7 @@ if($leanRx6950){
 
 $modelDir = switch($p.family){ 'bonsai2'{Join-Path $bonsaiDir "models\bonsai2-gguf\$($p.model)"}; 'ternary'{Join-Path $bonsaiDir "models\ternary-gguf\$($p.model)"}; default{Join-Path $bonsaiDir "models\gguf\$($p.model)"} }
 $model = Get-ChildItem $modelDir -Filter $p.ggufPattern -File -ErrorAction SilentlyContinue | Where-Object {$_.Name -notmatch 'mmproj|dspark|kv-bias'} | Select-Object -First 1
-if(-not $model){throw "Expected GGUF '$($p.ggufPattern)' not found in $modelDir. For RX 6950 XT this must be group-64 Q2_0, not PQ2_0."}
+if(-not $model){throw "Expected GGUF '$($p.ggufPattern)' not found in $modelDir."}
 $bin = Join-Path $bonsaiDir "bin\$($p.backend)\llama-server.exe"
 if(-not (Test-Path $bin)){throw "Expected backend binary missing: $bin"}
 Write-Host "[OK] Setup complete: $($p.id)" -ForegroundColor Green
