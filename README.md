@@ -11,7 +11,7 @@
 [![CI](https://github.com/quendae/bonsai-qnd/actions/workflows/test.yml/badge.svg)](https://github.com/quendae/bonsai-qnd/actions/workflows/test.yml)
 [![Release](https://img.shields.io/github/v/release/quendae/bonsai-qnd?include_prereleases&label=prerelease)](https://github.com/quendae/bonsai-qnd/releases)
 
-**Windows users:** download the current installer, launch **Bonsai QND**, choose hardware + context + LAN mode, and press **Start**.
+**Windows users:** download the current installer, launch **Bonsai QND**, choose hardware + context + reasoning + LAN mode, and press **Start**.
 
 ### [⬇ Download Windows installer](https://github.com/quendae/bonsai-qnd/releases)
 
@@ -33,6 +33,7 @@ On Windows, the normal workflow is a small native GUI — no manual PowerShell c
 - Dedicated paths for **RTX 3060**, **RX 6950 XT** and **CPU**.
 - Current **Bonsai 2 27B** on supported GPU profiles.
 - Runtime context selection up to **256K** for Bonsai 2 GPU profiles.
+- Configurable Bonsai 2 reasoning budgets: **Off / Low / Medium / High / Max**.
 - Optional **LAN server mode** for a second workstation.
 - Local **DeepSeek Harness** can use a model running on another machine.
 - Reproducible, pinned upstream revisions.
@@ -60,13 +61,14 @@ Open **Bonsai QND** and select:
 | **AMD RX 6950 XT 16 GB** | Bonsai 2 27B `PTQ1_0` | Vulkan | 65,536 |
 | **CPU (Windows)** | Bonsai 27B `Q1_0` | CPU x64 | 8,192 |
 
-For Bonsai 2 GPU modes the launcher currently offers:
+For Bonsai 2 GPU modes the launcher offers:
 
 ```text
-65,536   131,072   196,608   262,144
+Context:    65,536   131,072   196,608   262,144
+Reasoning:  Off      Low       Medium    High      Max
 ```
 
-Larger context means a larger KV cache and higher memory use.
+**Medium / 2048 tokens** is the default reasoning level for Bonsai 2 GPU modes. The Windows CPU profile is fixed to **Off**.
 
 ### 3. Press Start
 
@@ -76,9 +78,10 @@ The launcher automatically:
 2. downloads the required model quantization if missing;
 3. downloads the pinned backend/runtime if missing;
 4. skips those downloads on later runs;
-5. starts `llama-server` in the background;
-6. waits until `/v1/models` responds;
-7. shows setup and server output in the GUI.
+5. applies the selected context and reasoning budget;
+6. starts `llama-server` in the background;
+7. waits until `/v1/models` responds;
+8. shows setup and server output in the GUI.
 
 When ready, the local endpoint is:
 
@@ -96,7 +99,7 @@ Use **Stop** to terminate the managed server process tree.
 |---|---|---|---|---|
 | **Radeon RX 6950 XT 16 GB / Windows** | ✅ Hardware tested | Bonsai 2 27B `PTQ1_0` | Vulkan | Primary AMD path, full GPU offload, KV4 |
 | **GeForce RTX 3060 12 GB / Windows** | 🧪 Active hardware validation | Bonsai 2 27B `PQ2_0` | CUDA 12.4 | Primary NVIDIA path, full GPU offload, KV4 |
-| **Windows CPU** | 🧪 Available | Bonsai 27B `Q1_0` | CPU x64 | GUI CPU fallback |
+| **Windows CPU** | 🧪 Available | Bonsai 27B `Q1_0` | CPU x64 | GUI CPU fallback, reasoning Off |
 | **Debian / LXC CPU** | ✅ Supported CLI path | Bonsai 27B `Q1_0` | CPU | Agent/tool profile |
 | **Debian / LXC CPU (fast)** | ✅ Supported CLI path | Bonsai 8B `Q1_0` | CPU | Faster chat/testing profile |
 | **RX 6950 XT HIP** | ⚠ Experimental | Bonsai 2 27B `PQ2_0` | HIP | Not the safe Windows default for gfx1030 |
@@ -109,6 +112,47 @@ Bonsai 2 relies on PrismML's `llama.cpp` fork.
 The RTX 3060 can use the optimized **PQ2_0 + CUDA** route. On the RX 6950 XT, the default Windows path is **PTQ1_0 + Vulkan**, because current Windows HIP support for gfx1030 is not treated as a safe default.
 
 The HIP/PQ2_0 route remains available only as an experimental profile.
+
+---
+
+## Reasoning levels
+
+For Bonsai 2 GPU profiles, the Windows launcher exposes a reasoning selector next to **Context**.
+
+| Level | Reasoning budget | Suggested use |
+|---|---:|---|
+| **Off** | `0` | Fastest path when explicit reasoning is not needed |
+| **Low** | `512` | Short reasoning / lightweight decisions |
+| **Medium** | `2048` | **GUI default**; balanced general use |
+| **High** | `8192` | Harder coding, analysis and agent tasks |
+| **Max** | unlimited (`-1`) | Let the model use an unrestricted reasoning budget |
+
+The selected value is passed to the pinned `llama-server` as `--reasoning-budget`. **Off** additionally disables thinking in the chat template.
+
+The GUI always starts Bonsai 2 with the selected explicit level. If you use the CLI and omit `-Reasoning`, QND preserves the model/profile default behavior for backwards compatibility.
+
+Changing the reasoning level does **not** require a different model download. Stop the running server, choose another level, and start it again.
+
+> Higher reasoning budgets can increase response latency and generated-token workload. They do not increase the model's context window; context and reasoning are separate controls.
+
+---
+
+## Context sizing
+
+GPU profiles keep **65,536** as their conservative default.
+
+Validated launcher values for Bonsai 2 are:
+
+| Context | Typical use |
+|---:|---|
+| `65,536` | Default / lower memory pressure |
+| `131,072` | Large coding and agent sessions |
+| `196,608` | Very large working context |
+| `262,144` | Maximum QND override for Bonsai 2 |
+
+Both primary GPU profiles use a Q4_0 K/V cache to reduce KV memory pressure.
+
+Context size is not free: increasing it raises memory usage and prompt-processing latency. A value being accepted by QND does not guarantee that every GPU/driver combination will have enough free VRAM for every workload.
 
 ---
 
@@ -160,8 +204,9 @@ On the model server:
 
 1. open `BonsaiQND.exe`;
 2. select the GPU profile;
-3. enable **LAN**;
-4. press **Start**.
+3. choose context and reasoning;
+4. enable **LAN**;
+5. press **Start**.
 
 On the workstation, the current CLI fallback can configure local Harness against that remote API:
 
@@ -179,25 +224,6 @@ http://127.0.0.1:3080
 ```
 
 Only model requests cross the LAN.
-
----
-
-## Context sizing
-
-GPU profiles keep **65,536** as their conservative default.
-
-Validated launcher values for Bonsai 2 are:
-
-| Context | Typical use |
-|---:|---|
-| `65,536` | Default / lower memory pressure |
-| `131,072` | Large coding and agent sessions |
-| `196,608` | Very large working context |
-| `262,144` | Maximum QND override for Bonsai 2 |
-
-Both primary GPU profiles use a Q4_0 K/V cache to reduce KV memory pressure.
-
-Context size is not free: increasing it raises memory usage and prompt-processing latency. A value being accepted by QND does not guarantee that every GPU/driver combination will have enough free VRAM for every workload.
 
 ---
 
@@ -219,16 +245,16 @@ This is intentional:
 
 ## Profiles
 
-| Profile | Platform | Model | Backend | Context | State |
-|---|---|---|---|---:|---|
-| `nvidia-rtx3060` | Windows | Bonsai 2 27B `PQ2_0` | CUDA 12.4 | 65,536 | Primary |
-| `amd-rx6950xt` | Windows | Bonsai 2 27B `PTQ1_0` | Vulkan | 65,536 | Primary |
-| `windows-cpu` | Windows | Bonsai 27B `Q1_0` | CPU x64 | 8,192 | Primary CPU fallback |
-| `amd-rx6950xt-hip` | Windows | Bonsai 2 27B `PQ2_0` | HIP | 65,536 | Experimental |
-| `amd-rx6950xt-legacy` | Windows | Ternary-Bonsai 27B Q2 group-64 | Vulkan | 16,384 | Legacy baseline |
-| `cpu-agent` | Linux | Bonsai 27B `Q1_0` | CPU | 8,192 | Primary Linux CPU |
-| `cpu-fast` | Linux | Bonsai 8B `Q1_0` | CPU | 8,192 | Faster Linux CPU |
-| `amd-rocm-bonsai2` | Linux | Bonsai 2 27B `PQ2_0` | ROCm | 16,384 | Experimental |
+| Profile | Platform | Model | Backend | Context | Reasoning | State |
+|---|---|---|---|---:|---|---|
+| `nvidia-rtx3060` | Windows | Bonsai 2 27B `PQ2_0` | CUDA 12.4 | 65,536 | Selectable | Primary |
+| `amd-rx6950xt` | Windows | Bonsai 2 27B `PTQ1_0` | Vulkan | 65,536 | Selectable | Primary |
+| `windows-cpu` | Windows | Bonsai 27B `Q1_0` | CPU x64 | 8,192 | Off | Primary CPU fallback |
+| `amd-rx6950xt-hip` | Windows | Bonsai 2 27B `PQ2_0` | HIP | 65,536 | CLI/profile dependent | Experimental |
+| `amd-rx6950xt-legacy` | Windows | Ternary-Bonsai 27B Q2 group-64 | Vulkan | 16,384 | Profile default | Legacy baseline |
+| `cpu-agent` | Linux | Bonsai 27B `Q1_0` | CPU | 8,192 | Profile default | Primary Linux CPU |
+| `cpu-fast` | Linux | Bonsai 8B `Q1_0` | CPU | 8,192 | Profile default | Faster Linux CPU |
+| `amd-rocm-bonsai2` | Linux | Bonsai 2 27B `PQ2_0` | ROCm | 16,384 | Profile default | Experimental |
 
 ---
 
@@ -264,13 +290,19 @@ The GUI is the primary Windows interface, but CLI commands remain useful for dia
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 profiles
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 setup -Profile nvidia-rtx3060
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 doctor -Profile nvidia-rtx3060 -Context 131072
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 start -Profile nvidia-rtx3060 -Context 131072 -Bind 0.0.0.0
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\qnd.ps1 start -Profile nvidia-rtx3060 -Context 131072 -Reasoning medium -Bind 0.0.0.0
+```
+
+Reasoning values:
+
+```text
+off | low | medium | high | max
 ```
 
 Legacy convenience launchers remain available:
 
 ```bat
-start-nvidia-lan.bat -Context 131072
+start-nvidia-lan.bat -Context 131072 -Reasoning medium
 start-cpu-lan.bat
 ```
 
@@ -301,6 +333,10 @@ That is expected. The first launch downloads the selected model and pinned backe
 ### Large context fails to start
 
 Try a smaller value. Context increases KV-cache memory requirements even though QND uses quantized Q4_0 K/V cache on the GPU profiles.
+
+### Responses take much longer with High or Max reasoning
+
+That can be expected. Lower the Reasoning selector to **Medium**, **Low** or **Off** and restart the server.
 
 ---
 
@@ -350,6 +386,7 @@ Real-machine testing is especially useful. When reporting a problem, include:
 
 - selected QND mode/profile;
 - context size;
+- reasoning level;
 - GPU + VRAM or CPU + RAM;
 - driver version when relevant;
 - the launcher log from startup through the failure.
