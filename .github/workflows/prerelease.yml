@@ -2,7 +2,9 @@ name: prerelease
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - feat/bonsai2-rx6950xt
     paths:
       - 'installer/**'
       - '.github/workflows/prerelease.yml'
@@ -47,6 +49,7 @@ jobs:
           path: dist/BonsaiQND-Setup-v0.1.0-pre.1.exe
 
       - name: Publish GitHub prerelease
+        if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
